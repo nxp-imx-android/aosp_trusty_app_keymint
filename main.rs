@@ -16,6 +16,10 @@
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use kmr_common::crypto;
+use kmr_crypto_boring::{
+    aes::BoringAes, aes_cmac::BoringAesCmac, des::BoringDes, ec::BoringEc, eq::BoringEq,
+    hmac::BoringHmac, rng::BoringRng, rsa::BoringRsa,
+};
 use kmr_ta::{HardwareInfo, KeyMintTa};
 use log::{debug, info};
 use tipc::{
@@ -108,22 +112,22 @@ fn main() {
         fused: false,
     };
 
-    // TODO: replace no-ops with actual implementations
-    let mut rng = crypto::NoOpRng {};
+    let mut rng = BoringRng::default();
     let clock = crypto::NoOpClock {};
     let imp = crypto::Implementation {
         rng: &mut rng,
         clock: Some(&clock),
-        compare: &crypto::InsecureEq {},
-        aes: &crypto::NoOpAes,
-        des: &crypto::NoOpDes,
-        hmac: &crypto::NoOpHmac,
-        rsa: &crypto::NoOpRsa,
-        ec: &crypto::NoOpEc,
-        ckdf: &crypto::NoOpAesCmac,
-        hkdf: &crypto::NoOpHmac,
+        compare: &BoringEq,
+        aes: &BoringAes,
+        des: &BoringDes,
+        hmac: &BoringHmac,
+        rsa: &BoringRsa,
+        ec: &BoringEc,
+        ckdf: &BoringAesCmac,
+        hkdf: &BoringHmac,
     };
 
+    // TODO: replace no-ops with actual implementations
     let dev = kmr_ta::device::Implementation {
         keys: &kmr_ta::device::NoOpRetrieveKeyMaterial,
         sign_info: &kmr_ta::device::NoOpRetrieveCertSigningInfo,
@@ -136,6 +140,7 @@ fn main() {
     };
 
     let service = KMService::new(hw_info, imp, dev);
+
     let port = PortCfg::new("com.android.trusty.keymint")
         .expect("In keymint: could not create port config.")
         .allow_ta_connect()
