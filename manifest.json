@@ -1,5 +1,6 @@
 {
-    "uuid": "2e5415f0-d4d5-4a18-838f-29647dfc01d7",
+    "app_name": "keymint_lib",
+    "uuid": "d322eec9-6d03-49fa-821c-1ccd2705719c",
     "min_heap": 114688,
     "min_stack": 65536
 }

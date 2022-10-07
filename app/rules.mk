@@ -20,19 +20,20 @@ MODULE := $(LOCAL_DIR)
 MANIFEST := $(LOCAL_DIR)/manifest.json
 
 MODULE_SRCS += \
-	$(LOCAL_DIR)/lib.rs \
+	$(LOCAL_DIR)/../main.rs \
 
-MODULE_CRATE_NAME := keymint
+MODULE_CRATE_NAME := keymint_app
 
 MODULE_LIBRARY_DEPS += \
+	trusty/user/app/keymint \
 	trusty/user/base/lib/keymint-rust/boringssl \
 	trusty/user/base/lib/keymint-rust/common \
 	trusty/user/base/lib/keymint-rust/ta \
+	trusty/user/base/lib/libc-rust \
+	trusty/user/base/lib/libstd-rust \
 	trusty/user/base/lib/log-rust \
 	trusty/user/base/lib/tipc/rust \
 	trusty/user/base/lib/trusty-log \
 	trusty/user/base/lib/trusty-std \
 
-MODULE_RUST_TESTS := true
-
-include make/library.mk
+include make/trusted_app.mk
