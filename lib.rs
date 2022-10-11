@@ -18,52 +18,18 @@
 #![allow(unused)] //TODO: remove unused and fix any dependency issues.
 #![no_std]
 
-use kmr_common::crypto;
 use kmr_ta;
 
-pub mod attest;
+mod keys;
 
-pub use FakeKeys as TrustyKeys;
+pub use keys::TrustyKeys;
 
 // TODO: maintain the bootloader status and update it as the bootloader informs
 // Trusty when it is done.
 pub struct TrustyBootLoaderStatus;
 impl kmr_ta::device::BootloaderStatus for TrustyBootLoaderStatus {}
 
-// TODO: replace with a real implementation
-pub struct FakeKeys;
-
-impl kmr_ta::device::RetrieveKeyMaterial for FakeKeys {
-    fn root_kek(&self) -> crypto::RawKeyMaterial {
-        crypto::RawKeyMaterial(b"0123456789012345".to_vec())
-    }
-    fn kak(&self) -> crypto::aes::Key {
-        crypto::aes::Key::Aes256([0; 32])
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use kmr_ta::device::RetrieveKeyMaterial;
-    use test::*;
-
     test::init!();
-
-    #[test]
-    fn kak_call_returns_key() {
-        let trusty_keys = TrustyKeys;
-
-        let kak = trusty_keys.kak();
-
-        expect!(matches!(kak, crypto::aes::Key::Aes256(_)), "Should have received an AES 256b key");
-
-        let key = if let crypto::aes::Key::Aes256(kak_key) = kak {
-            kak_key
-        } else {
-            panic!("Because we checked that the key type was Aes256 this should never happen");
-        };
-        // Getting an all 0 password by chance is not likely if we got a connection to HWKey
-        //expect_ne!(key, [0; 32], "password should not be 0s"); // functionality not implemented yet
-    }
 }

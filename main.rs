@@ -121,8 +121,8 @@ fn main() {
         aes: &BoringAes,
         des: &BoringDes,
         hmac: &BoringHmac,
-        rsa: &BoringRsa,
-        ec: &BoringEc,
+        rsa: &BoringRsa::default(),
+        ec: &BoringEc::default(),
         ckdf: &BoringAesCmac,
         hkdf: &BoringHmac,
     };
@@ -137,6 +137,7 @@ fn main() {
         sk_wrapper: None,
         //TODO: Implement TrustedUserPresence for Trusty
         tup: &kmr_ta::device::TrustedPresenceUnsupported,
+        legacy_key: None,
     };
 
     let service = KMService::new(hw_info, imp, dev);
