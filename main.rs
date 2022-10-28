@@ -15,6 +15,7 @@
  */
 use alloc::vec::Vec;
 use core::cell::RefCell;
+use keymint::{AttestationIds, CertSignInfo, TrustyKeys};
 use kmr_common::crypto;
 use kmr_crypto_boring::{
     aes::BoringAes, aes_cmac::BoringAesCmac, des::BoringDes, ec::BoringEc, eq::BoringEq,
@@ -126,12 +127,14 @@ fn main() {
         ckdf: &BoringAesCmac,
         hkdf: &BoringHmac,
     };
-
+    let sign_info = CertSignInfo;
+    let mut att_ids = AttestationIds;
+    let trusty_keys = TrustyKeys;
     // TODO: replace no-ops with actual implementations
     let dev = kmr_ta::device::Implementation {
-        keys: &kmr_ta::device::NoOpRetrieveKeyMaterial,
-        sign_info: &kmr_ta::device::NoOpRetrieveCertSigningInfo,
-        attest_ids: None,
+        keys: &trusty_keys,
+        sign_info: &sign_info,
+        attest_ids: Some(&mut att_ids),
         sdd_mgr: None,
         bootloader: &kmr_ta::device::BootloaderDone,
         sk_wrapper: None,

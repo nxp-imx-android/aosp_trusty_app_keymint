@@ -20,9 +20,12 @@
 
 use kmr_ta;
 
+mod keymaster_attributes;
 mod keys;
+mod secure_storage_manager;
 
 pub use keys::TrustyKeys;
+pub use secure_storage_manager::{AttestationIds, CertSignInfo};
 
 // TODO: maintain the bootloader status and update it as the bootloader informs
 // Trusty when it is done.
