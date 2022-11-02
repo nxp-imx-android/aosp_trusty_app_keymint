@@ -26,6 +26,7 @@ MODULE_CRATE_NAME := keymint
 
 MODULE_LIBRARY_DEPS += \
 	trusty/user/base/lib/hwkey/rust \
+	trusty/user/base/lib/hwwsk/rust \
 	trusty/user/base/lib/keymint-rust/boringssl \
 	trusty/user/base/lib/keymint-rust/common \
 	trusty/user/base/lib/keymint-rust/ta \

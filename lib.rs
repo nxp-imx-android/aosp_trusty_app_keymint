@@ -20,10 +20,12 @@
 
 use kmr_ta;
 
+mod key_wrapper;
 mod keymaster_attributes;
 mod keys;
 mod secure_storage_manager;
 
+pub use key_wrapper::TrustyStorageKeyWrapper;
 pub use keys::TrustyKeys;
 pub use secure_storage_manager::{AttestationIds, CertSignInfo};
 
