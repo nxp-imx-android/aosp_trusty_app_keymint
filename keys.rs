@@ -26,6 +26,8 @@ use kmr_common::{
 };
 use trusty_std::ffi::CStr;
 
+pub(crate) mod legacy;
+
 const TRUSTY_KM_KAK_SIZE: usize = 32;
 const TRUSTY_KM_WRAPPING_KEY_SIZE: usize = 16;
 const KM_KAK_SLOT_ID: &'static [u8] = b"com.android.trusty.keymint.kak\0";

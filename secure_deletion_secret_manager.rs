@@ -13,7 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-//! Module that implements SecureDeletionSecretManager trait.
+
+//! Module that implements the [`SecureDeletionSecretManager`] trait.
+use alloc::rc::Rc;
 use core::{
     cell::RefCell,
     cmp,
@@ -958,5 +960,51 @@ mod tests {
         );
         sdsf.delete_all();
         expect!(check_secret_manager_file_exists() == false, "Couldn't delete secret manager file");
+    }
+}
+
+/// Wrapper to allow a single instance of [`SecureDeletionSecretManager`] to be shared.
+#[derive(Clone)]
+pub struct SharedSddManager<T> {
+    inner: Rc<RefCell<T>>,
+}
+
+impl<T> SharedSddManager<T> {
+    /// Move a [`SecureDeletionSecretManager`] into a shareable wrapper.
+    pub fn new(inner: T) -> Self {
+        Self { inner: Rc::new(RefCell::new(inner)) }
+    }
+}
+
+impl<T: SecureDeletionSecretManager> SecureDeletionSecretManager for SharedSddManager<T> {
+    fn get_or_create_factory_reset_secret(
+        &mut self,
+        rng: &mut dyn crypto::Rng,
+    ) -> Result<SecureDeletionData, Error> {
+        self.inner.borrow_mut().get_or_create_factory_reset_secret(rng)
+    }
+
+    fn get_factory_reset_secret(&self) -> Result<SecureDeletionData, Error> {
+        self.inner.borrow_mut().get_factory_reset_secret()
+    }
+
+    fn new_secret(
+        &mut self,
+        rng: &mut dyn crypto::Rng,
+        purpose: kmr_common::keyblob::SlotPurpose,
+    ) -> Result<(SecureDeletionSlot, SecureDeletionData), Error> {
+        self.inner.borrow_mut().new_secret(rng, purpose)
+    }
+
+    fn get_secret(&self, slot: SecureDeletionSlot) -> Result<SecureDeletionData, Error> {
+        self.inner.borrow().get_secret(slot)
+    }
+
+    fn delete_secret(&mut self, slot: SecureDeletionSlot) -> Result<(), Error> {
+        self.inner.borrow_mut().delete_secret(slot)
+    }
+
+    fn delete_all(&mut self) {
+        self.inner.borrow_mut().delete_all()
     }
 }

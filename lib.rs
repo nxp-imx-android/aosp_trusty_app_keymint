@@ -29,9 +29,10 @@ mod secure_storage_manager;
 
 pub use ipc_manager::handle_port_connections;
 pub use key_wrapper::TrustyStorageKeyWrapper;
+pub use keys::legacy::TrustyLegacyKeyBlobHandler;
 pub use keys::TrustyKeys;
 pub use monotonic_clock::TrustyMonotonicCLock;
-pub use secure_deletion_secret_manager::TrustySecureDeletionSecretManager;
+pub use secure_deletion_secret_manager::{SharedSddManager, TrustySecureDeletionSecretManager};
 pub use secure_storage_manager::{AttestationIds, CertSignInfo};
 
 // TODO: maintain the bootloader status and update it as the bootloader informs

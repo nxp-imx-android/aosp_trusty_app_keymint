@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 use keymint::{
-    AttestationIds, CertSignInfo, TrustyKeys, TrustyMonotonicCLock,
+    AttestationIds, CertSignInfo, SharedSddManager, TrustyKeys, TrustyMonotonicCLock,
     TrustySecureDeletionSecretManager, TrustyStorageKeyWrapper,
 };
 use kmr_common::crypto;
@@ -63,18 +63,24 @@ fn main() {
     let mut att_ids = AttestationIds;
     let trusty_keys = TrustyKeys;
     let key_wrapper = TrustyStorageKeyWrapper;
-    let mut sdd_mgr = TrustySecureDeletionSecretManager::new();
-    // TODO: replace no-ops with actual implementations
+    let sdd_mgr = TrustySecureDeletionSecretManager::new();
+    let mut shared_sdd_mgr = SharedSddManager::new(sdd_mgr);
+    let mut legacy_sdd_mgr = shared_sdd_mgr.clone();
+    let mut legacy_key = keymint::TrustyLegacyKeyBlobHandler {
+        aes: &BoringAes,
+        hkdf: &BoringHmac,
+        sdd_mgr: Some(&mut legacy_sdd_mgr),
+        keys: &trusty_keys,
+    };
     let dev = kmr_ta::device::Implementation {
         keys: &trusty_keys,
         sign_info: &sign_info,
         attest_ids: Some(&mut att_ids),
-        sdd_mgr: Some(&mut sdd_mgr),
+        sdd_mgr: Some(&mut shared_sdd_mgr),
         bootloader: &kmr_ta::device::BootloaderDone,
         sk_wrapper: Some(&key_wrapper),
-        //TODO: Implement TrustedUserPresence for Trusty
         tup: &kmr_ta::device::TrustedPresenceUnsupported,
-        legacy_key: None,
+        legacy_key: Some(&mut legacy_key),
         // TODO (b/253926846) add HWBCC backed implementation
         rpc: &kmr_ta::device::NoOpRetrieveRpcArtifacts,
     };
