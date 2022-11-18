@@ -23,10 +23,12 @@ use kmr_ta;
 mod key_wrapper;
 mod keymaster_attributes;
 mod keys;
+mod secure_deletion_secret_manager;
 mod secure_storage_manager;
 
 pub use key_wrapper::TrustyStorageKeyWrapper;
 pub use keys::TrustyKeys;
+pub use secure_deletion_secret_manager::TrustySecureDeletionSecretManager;
 pub use secure_storage_manager::{AttestationIds, CertSignInfo};
 
 // TODO: maintain the bootloader status and update it as the bootloader informs

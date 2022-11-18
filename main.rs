@@ -15,7 +15,10 @@
  */
 use alloc::vec::Vec;
 use core::cell::RefCell;
-use keymint::{AttestationIds, CertSignInfo, TrustyKeys, TrustyStorageKeyWrapper};
+use keymint::{
+    AttestationIds, CertSignInfo, TrustyKeys, TrustySecureDeletionSecretManager,
+    TrustyStorageKeyWrapper,
+};
 use kmr_common::crypto;
 use kmr_crypto_boring::{
     aes::BoringAes, aes_cmac::BoringAesCmac, des::BoringDes, ec::BoringEc, eq::BoringEq,
@@ -138,12 +141,13 @@ fn main() {
     let mut att_ids = AttestationIds;
     let trusty_keys = TrustyKeys;
     let key_wrapper = TrustyStorageKeyWrapper;
+    let mut sdd_mgr = TrustySecureDeletionSecretManager::new();
     // TODO: replace no-ops with actual implementations
     let dev = kmr_ta::device::Implementation {
         keys: &trusty_keys,
         sign_info: &sign_info,
         attest_ids: Some(&mut att_ids),
-        sdd_mgr: None,
+        sdd_mgr: Some(&mut sdd_mgr),
         bootloader: &kmr_ta::device::BootloaderDone,
         sk_wrapper: Some(&key_wrapper),
         //TODO: Implement TrustedUserPresence for Trusty
