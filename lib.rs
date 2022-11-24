@@ -16,16 +16,17 @@
 //! This library implements the functionality used by the Keymint Trusty
 //! application.
 #![allow(unused)] //TODO: remove unused and fix any dependency issues.
-#![no_std]
 
 use kmr_ta;
 
+mod ipc_manager;
 mod key_wrapper;
 mod keymaster_attributes;
 mod keys;
 mod secure_deletion_secret_manager;
 mod secure_storage_manager;
 
+pub use ipc_manager::handle_port_connections;
 pub use key_wrapper::TrustyStorageKeyWrapper;
 pub use keys::TrustyKeys;
 pub use secure_deletion_secret_manager::TrustySecureDeletionSecretManager;
