@@ -29,6 +29,7 @@ MODULE_LIBRARY_DEPS += \
 	trusty/user/base/lib/keymint-rust/boringssl \
 	trusty/user/base/lib/keymint-rust/common \
 	trusty/user/base/lib/keymint-rust/ta \
+	trusty/user/base/lib/keymint-rust/wire \
 	trusty/user/base/lib/libc-rust \
 	trusty/user/base/lib/libstd-rust \
 	trusty/user/base/lib/log-rust \

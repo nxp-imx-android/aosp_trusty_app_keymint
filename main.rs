@@ -21,7 +21,7 @@ use kmr_crypto_boring::{
     aes::BoringAes, aes_cmac::BoringAesCmac, des::BoringDes, ec::BoringEc, eq::BoringEq,
     hmac::BoringHmac, rng::BoringRng, rsa::BoringRsa,
 };
-use kmr_ta::{HardwareInfo, KeyMintTa};
+use kmr_ta::{HardwareInfo, KeyMintTa, RpcInfo, RpcInfoV3};
 use log::{debug, info};
 use tipc::{
     Deserialize, Handle, Manager, PortCfg, Serialize, Serializer, Service, TipcError, Uuid,
@@ -61,10 +61,11 @@ struct KMService<'a> {
 impl<'a> KMService<'a> {
     fn new(
         hw_info: HardwareInfo,
+        rpc_info: RpcInfo,
         imp: crypto::Implementation<'a>,
         dev: kmr_ta::device::Implementation<'a>,
     ) -> Self {
-        KMService { km_ta: RefCell::new(KeyMintTa::new(hw_info, imp, dev)) }
+        KMService { km_ta: RefCell::new(KeyMintTa::new(hw_info, rpc_info, imp, dev)) }
     }
 
     fn process_message(&self, req_data: &[u8]) -> Vec<u8> {
@@ -110,7 +111,13 @@ fn main() {
         impl_name: "TEE KeyMint in Rust",
         author_name: "Google",
         unique_id: "TEE KeyMint TA",
+    };
+
+    let rpc_info_v3 = RpcInfoV3 {
+        author_name: "Google",
+        unique_id: "TEE KeyMint TA",
         fused: false,
+        supported_num_of_keys_in_csr: kmr_wire::rpc::MINIMUM_SUPPORTED_KEYS_IN_CSR,
     };
 
     let mut rng = BoringRng::default();
@@ -142,9 +149,11 @@ fn main() {
         //TODO: Implement TrustedUserPresence for Trusty
         tup: &kmr_ta::device::TrustedPresenceUnsupported,
         legacy_key: None,
+        // TODO (b/253926846) add HWBCC backed implementation
+        rpc: &kmr_ta::device::NoOpRetrieveRpcArtifacts,
     };
 
-    let service = KMService::new(hw_info, imp, dev);
+    let service = KMService::new(hw_info, RpcInfo::V3(rpc_info_v3), imp, dev);
 
     let port = PortCfg::new("com.android.trusty.keymint")
         .expect("In keymint: could not create port config.")
