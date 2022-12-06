@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 use keymint::{
-    AttestationIds, CertSignInfo, TrustyKeys, TrustySecureDeletionSecretManager,
-    TrustyStorageKeyWrapper,
+    AttestationIds, CertSignInfo, TrustyKeys, TrustyMonotonicCLock,
+    TrustySecureDeletionSecretManager, TrustyStorageKeyWrapper,
 };
 use kmr_common::crypto;
 use kmr_crypto_boring::{
@@ -46,7 +46,7 @@ fn main() {
     };
 
     let mut rng = BoringRng::default();
-    let clock = crypto::NoOpClock {};
+    let clock = TrustyMonotonicCLock;
     let imp = crypto::Implementation {
         rng: &mut rng,
         clock: Some(&clock),

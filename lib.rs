@@ -23,12 +23,14 @@ mod ipc_manager;
 mod key_wrapper;
 mod keymaster_attributes;
 mod keys;
+mod monotonic_clock;
 mod secure_deletion_secret_manager;
 mod secure_storage_manager;
 
 pub use ipc_manager::handle_port_connections;
 pub use key_wrapper::TrustyStorageKeyWrapper;
 pub use keys::TrustyKeys;
+pub use monotonic_clock::TrustyMonotonicCLock;
 pub use secure_deletion_secret_manager::TrustySecureDeletionSecretManager;
 pub use secure_storage_manager::{AttestationIds, CertSignInfo};
 
