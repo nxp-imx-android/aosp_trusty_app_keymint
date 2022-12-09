@@ -34,6 +34,7 @@ MODULE_LIBRARY_DEPS += \
 	trusty/user/base/lib/protobuf-rust \
 	trusty/user/base/lib/storage/rust \
 	trusty/user/base/lib/tipc/rust \
+	trusty/user/base/lib/system_state/rust \
 	trusty/user/base/lib/trusty-log \
 	trusty/user/base/lib/trusty-std \
 
