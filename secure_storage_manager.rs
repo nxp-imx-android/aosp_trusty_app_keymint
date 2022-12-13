@@ -18,8 +18,8 @@ use crate::keymaster_attributes;
 use alloc::{format, string::String, vec::Vec};
 use kmr_common::{
     crypto::{self, KeyMaterial},
-    km_err, vec_try, vec_try_with_capacity,
-    wire::keymint,
+    km_err, try_to_vec, vec_try, vec_try_with_capacity,
+    wire::keymint::{self, ErrorCode},
     wire::AttestationIdInfo,
     Error,
 };
@@ -49,6 +49,98 @@ fn get_key_slot_file_name(algorithm: SigningAlgorithm) -> String {
         SigningAlgorithm::Rsa => "rsa",
     };
     format!("{}.{}", KM_ATTESTATION_KEY_CERT_PREFIX, suffix)
+}
+
+// TODO: refactor functions to have (Session, SecureFile) inside a single structure and implement
+//       drop on it to call close automatically.
+/// Opens a secure storage session and creates the requested file
+fn create_file(file_name: &str) -> Result<(Session, SecureFile), Error> {
+    let mut session = Session::new(Port::TamperProof, true)
+        .map_err(|_| km_err!(SecureHwCommunicationFailed, "couldn't create storage session"))?;
+    let file = session
+        .open_file(file_name, OpenMode::Create)
+        .map_err(|_| km_err!(SecureHwCommunicationFailed, "couldn't create file {}", file_name))?;
+    Ok((session, file))
+}
+
+/// Creates an empty attestation IDs file
+fn create_attestation_id_file() -> Result<(Session, SecureFile), Error> {
+    create_file(KM_ATTESTATION_ID_FILENAME)
+}
+
+/// Creates and empty attestation key/certificates file for the given algorithm
+fn create_attestation_key_file(
+    algorithm: SigningAlgorithm,
+) -> Result<(Session, SecureFile), Error> {
+    let file_name = get_key_slot_file_name(algorithm);
+    create_file(&file_name)
+}
+
+/// Creates a new attestation key/certificates file and saves the provided data there
+pub(crate) fn provision_attestation_key_file(
+    algorithm: SigningAlgorithm,
+    key_data: &[u8],
+) -> Result<(), Error> {
+    let (mut session, mut file) = create_attestation_key_file(algorithm)?;
+    session.write_all(&mut file, &key_data).map_err(|_| {
+        km_err!(SecureHwCommunicationFailed, "failed to provision attestation key file")
+    })?;
+    file.close();
+    session.close();
+    Ok(())
+}
+
+/// Creates a new attestation IDs file and saves the provided data there
+pub(crate) fn provision_attestation_id_file(
+    brand: &[u8],
+    product: &[u8],
+    device: &[u8],
+    serial: &[u8],
+    imei: &[u8],
+    meid: &[u8],
+    manufacturer: &[u8],
+    model: &[u8],
+) -> Result<(), Error> {
+    let (mut session, mut file) = create_attestation_id_file()?;
+
+    let mut attestation_ids = keymaster_attributes::AttestationIds::new();
+
+    if brand.len() > 0 {
+        attestation_ids.set_brand(try_to_vec(brand)?);
+    }
+    if device.len() > 0 {
+        attestation_ids.set_device(try_to_vec(device)?);
+    }
+    if product.len() > 0 {
+        attestation_ids.set_product(try_to_vec(product)?);
+    }
+    if serial.len() > 0 {
+        attestation_ids.set_serial(try_to_vec(serial)?);
+    }
+    if imei.len() > 0 {
+        attestation_ids.set_imei(try_to_vec(imei)?);
+    }
+    if meid.len() > 0 {
+        attestation_ids.set_meid(try_to_vec(meid)?);
+    }
+    if manufacturer.len() > 0 {
+        attestation_ids.set_manufacturer(try_to_vec(manufacturer)?);
+    }
+    if model.len() > 0 {
+        attestation_ids.set_model(try_to_vec(model)?);
+    }
+
+    let serialized_buffer = attestation_ids
+        .write_to_bytes()
+        .map_err(|_| km_err!(SecureHwCommunicationFailed, "couldn't serialize attestationIds"))?;
+
+    session.write_all(&mut file, &serialized_buffer).map_err(|_| {
+        km_err!(SecureHwCommunicationFailed, "failed to provision attestation IDs file")
+    })?;
+
+    file.close();
+    session.close();
+    Ok(())
 }
 
 /// Delete all attestation IDs from secure storage.
@@ -119,7 +211,7 @@ pub(crate) fn read_attestation_key(key_type: SigningKeyType) -> Result<KeyMateri
         read_attestation_key_content(key_type)?;
 
     if !(attestation_key_pb.has_key()) {
-        return Err(km_err!(UnknownError, "Attestation Key file found but it had no key"));
+        return Err(km_err!(UnknownError, "attestation Key file found but it had no key"));
     }
     let key_buffer = attestation_key_pb.take_key();
     let key = match key_type.algo_hint {
@@ -140,7 +232,7 @@ pub(crate) fn get_cert_chain(key_type: SigningKeyType) -> Result<Vec<keymint::Ce
 
     let num_certs = certs.len();
     if num_certs == 0 {
-        return Err(km_err!(UnknownError, "Attestation Key file found but it had no certs"));
+        return Err(km_err!(UnknownError, "attestation Key file found but it had no certs"));
     }
     let mut certificates = vec_try_with_capacity!(num_certs)?;
     for mut cert in certs {
@@ -213,24 +305,6 @@ mod tests {
     // openssl pkcs8 -topk8 -in eckey2.key -outform der -nocrypt -out eckey.key
     const EC_KEY: &'static [u8] = include_bytes!("eckey.key");
 
-    fn create_file(file_name: &str) -> (Session, SecureFile) {
-        let mut session =
-            Session::new(Port::TamperProof, true).expect("Couldn't connect to storage");
-        let file = session
-            .open_file(file_name, OpenMode::Create)
-            .expect("Couldn't create attestation file.");
-        (session, file)
-    }
-
-    fn create_attestation_id_file() -> (Session, SecureFile) {
-        create_file(KM_ATTESTATION_ID_FILENAME)
-    }
-
-    fn create_attestation_key_file(algorithm: SigningAlgorithm) -> (Session, SecureFile) {
-        let file_name = get_key_slot_file_name(algorithm);
-        create_file(&file_name)
-    }
-
     fn delete_key_file(algorithm: SigningAlgorithm) {
         let file_name = get_key_slot_file_name(algorithm);
         let mut session =
@@ -262,7 +336,8 @@ mod tests {
     }
 
     fn read_certificates_test(algorithm: SigningAlgorithm) {
-        let (mut session, mut file) = create_attestation_key_file(algorithm);
+        let (mut session, mut file) =
+            create_attestation_key_file(algorithm).expect("Couldn't create attestation key file");
         let mut key_cert = keymaster_attributes::AttestationKey::new();
         let certs_data = [[b'a'; 2048], [b'\0'; 2048], [b'c'; 2048]];
 
@@ -299,7 +374,8 @@ mod tests {
             raw_protobuf.extend_from_slice(&field_header);
             raw_protobuf.extend_from_slice(cert_data);
         }
-        let (mut session, mut file) = create_attestation_key_file(algorithm);
+        let (mut session, mut file) =
+            create_attestation_key_file(algorithm).expect("Couldn't create attestation key file");
         session.write_all(&mut file, &raw_protobuf).unwrap();
 
         file.close();
@@ -318,7 +394,8 @@ mod tests {
     }
 
     fn read_key_test(algorithm: SigningAlgorithm) {
-        let (mut session, mut file) = create_attestation_key_file(algorithm);
+        let (mut session, mut file) =
+            create_attestation_key_file(algorithm).expect("Couldn't create attestation key file");
 
         let mut key_cert = keymaster_attributes::AttestationKey::new();
 
@@ -348,7 +425,8 @@ mod tests {
         raw_protobuf.extend_from_slice(&key_header);
         raw_protobuf.extend_from_slice(&test_key);
 
-        let (mut session, mut file) = create_attestation_key_file(algorithm);
+        let (mut session, mut file) =
+            create_attestation_key_file(algorithm).expect("Couldn't create attestation key file");
         session.write_all(&mut file, &raw_protobuf).unwrap();
         file.close();
         session.close();
@@ -368,7 +446,8 @@ mod tests {
 
     #[test]
     fn single_attestation_id_field() {
-        let (mut session, mut file) = create_attestation_id_file();
+        let (mut session, mut file) =
+            create_attestation_id_file().expect("Couldn't create attestation id file");
 
         let mut attestation_ids = keymaster_attributes::AttestationIds::new();
         let brand = b"new brand";
@@ -404,7 +483,8 @@ mod tests {
 
         // Now using a raw protobuf
         let raw_protobuf = [10, 9, 110, 101, 119, 32, 98, 114, 97, 110, 100];
-        let (mut session, mut file) = create_attestation_id_file();
+        let (mut session, mut file) =
+            create_attestation_id_file().expect("Couldn't create attestation id file");
         session.write_all(&mut file, &raw_protobuf).unwrap();
         file.close();
         session.close();
@@ -423,7 +503,8 @@ mod tests {
 
     #[test]
     fn all_attestation_id_fields() {
-        let (mut session, mut file) = create_attestation_id_file();
+        let (mut session, mut file) =
+            create_attestation_id_file().expect("Couldn't create attestation id file");
 
         let mut attestation_ids = keymaster_attributes::AttestationIds::new();
         let brand = b"unknown brand";
@@ -486,7 +567,8 @@ mod tests {
             32, 35, 36, 37, 37, 94, 66, 11, 119, 111, 114, 107, 105, 110, 103, 32, 111, 110, 101,
         ];
 
-        let (mut session, mut file) = create_attestation_id_file();
+        let (mut session, mut file) =
+            create_attestation_id_file().expect("Couldn't create attestation id file");
         session.write_all(&mut file, &raw_protobuf).unwrap();
         file.close();
         session.close();
@@ -506,7 +588,8 @@ mod tests {
 
     #[test]
     fn delete_attestation_ids_file() {
-        let (mut session, mut file) = create_attestation_id_file();
+        let (mut session, mut file) =
+            create_attestation_id_file().expect("Couldn't create attestation id file");
         let raw_protobuf = [10, 9, 110, 101, 119, 32, 98, 114, 97, 110, 100];
         session.write_all(&mut file, &raw_protobuf).unwrap();
         file.close();
