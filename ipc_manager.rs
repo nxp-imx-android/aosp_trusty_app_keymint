@@ -24,7 +24,7 @@ use kmr_common::{
     },
     Error,
 };
-use kmr_ta::{self, HardwareInfo, KeyMintTa, RpcInfo};
+use kmr_ta::{self, split_rsp, HardwareInfo, KeyMintTa, RpcInfo};
 use log::{debug, error, info};
 use tipc::{
     service_dispatcher, Deserialize, Handle, Manager, PortCfg, Serialize, Serializer, Service,
@@ -42,6 +42,7 @@ const KM_SEC_TIPC_SRV_PORT: &str = "com.android.trusty.keymint.secure";
 const KM_SEC_TIPC_SRV_PORT: &str = "com.android.trusty.keymaster.secure";
 
 const KEYMINT_MAX_BUFFER_LENGTH: usize = 4096;
+const KEYMINT_MAX_MESSAGE_CONTENT_SIZE: usize = 4000;
 
 struct Context {
     _uuid: Uuid,
@@ -76,8 +77,9 @@ impl<'a> KMService<'a> {
         KMService { km_ta }
     }
 
-    fn process_message(&self, req_data: &[u8]) -> Vec<u8> {
-        self.km_ta.borrow_mut().process(req_data)
+    fn handle_message(&self, req_data: &[u8]) -> Result<Vec<Vec<u8>>, Error> {
+        let resp = self.km_ta.borrow_mut().process(req_data);
+        split_rsp(resp.as_slice(), KEYMINT_MAX_MESSAGE_CONTENT_SIZE)
     }
 }
 
@@ -104,8 +106,20 @@ impl<'a> Service for KMService<'a> {
     ) -> Result<bool, TipcError> {
         // TODO: remove "In keymint: on_message" once we use a logger that prints more context.
         debug!("In keymint: on_message.");
-        let resp = self.process_message(&msg.0);
-        handle.send(&KMMessage(resp))?;
+        let resp_vec = self.handle_message(&msg.0).map_err(|e| match e {
+            Error::Hal(_, err_msg) => {
+                error!("In keymint: on_message. Error: {} in handling the message.", err_msg);
+                TipcError::InvalidData
+            }
+            Error::Alloc(err_msg) => {
+                error!("In keymint: on_message. Error: {} in handling the message.", err_msg);
+                TipcError::AllocError
+            }
+            _ => TipcError::UnknownError,
+        })?;
+        for resp in resp_vec {
+            handle.send(&KMMessage(resp))?;
+        }
         Ok(true)
     }
 }
