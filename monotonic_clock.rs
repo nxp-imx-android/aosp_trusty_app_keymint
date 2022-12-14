@@ -13,20 +13,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-//! Module that implements MonotonicClock trait.
+
+//! Module that implements [`MonotonicClock`] trait.
 use kmr_common::crypto::{MillisecondsSinceEpoch, MonotonicClock};
 use log::error;
 
-pub struct TrustyMonotonicCLock;
+/// Monotonic clock implementation for Trusty.
+pub struct TrustyMonotonicClock;
 
-impl MonotonicClock for TrustyMonotonicCLock {
+impl MonotonicClock for TrustyMonotonicClock {
     fn now(&self) -> MillisecondsSinceEpoch {
         let mut secure_time_ns = 0;
-        //SAFETY: External syscall.
+        // Safety: external syscall gets valid raw pointer to a `u64`.
         let rc = unsafe { trusty_sys::gettime(0, 0, &mut secure_time_ns) };
         let secure_time_ns = if rc < 0 {
-            // Couldn't get time; original behavior is to return here u64::MAX scaled to ms
-            // and log an error
+            // Couldn't get time; original behavior is to return here `u64::MAX` scaled to ms and
+            // log an error
             error!("Error calling trusty_gettime: {:#x}", rc);
             ((u64::MAX / 1000) / 1000) as i64
         } else {
@@ -40,11 +42,11 @@ impl MonotonicClock for TrustyMonotonicCLock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use test::{expect, expect_eq, expect_ne};
+    use test::{expect, expect_ne};
 
     #[test]
     fn get_milliseconds_since_boot_test() {
-        let trusty_clock = TrustyMonotonicCLock;
+        let trusty_clock = TrustyMonotonicClock;
         let time1 = trusty_clock.now().0;
         let time2 = trusty_clock.now().0;
         // Because we cannot sleep between calls and granularity is in milliseconds,

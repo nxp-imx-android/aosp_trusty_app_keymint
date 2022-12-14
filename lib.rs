@@ -13,11 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-//! This library implements the functionality used by the Keymint Trusty
-//! application.
-#![allow(unused)] //TODO: remove unused and fix any dependency issues.
 
-use kmr_ta;
+//! This library implements the functionality used by the KeyMint Trusty
+//! application.
 
 mod ipc_manager;
 mod key_wrapper;
@@ -32,11 +30,12 @@ pub use ipc_manager::handle_port_connections;
 pub use key_wrapper::{TrustyAes, TrustyStorageKeyWrapper};
 pub use keys::legacy::TrustyLegacyKeyBlobHandler;
 pub use keys::TrustyKeys;
-pub use monotonic_clock::TrustyMonotonicCLock;
+pub use monotonic_clock::TrustyMonotonicClock;
 pub use rpc::TrustyRpc;
 pub use secure_deletion_secret_manager::{SharedSddManager, TrustySecureDeletionSecretManager};
 pub use secure_storage_manager::{AttestationIds, CertSignInfo};
 
+/// Implementation of bootloader status indication for Trusty.
 // TODO: maintain the bootloader status and update it as the bootloader informs
 // Trusty when it is done.
 pub struct TrustyBootLoaderStatus;

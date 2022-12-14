@@ -36,6 +36,8 @@ pub struct TrustyLegacyKeyBlobHandler<'a> {
 }
 
 impl<'a> TrustyLegacyKeyBlobHandler<'a> {
+    /// Build the derivation information needed for KEK derivation that is compatible with the
+    /// previous C++ implementation.
     fn build_derivation_info(
         &self,
         encrypted_keyblob: &legacy::EncryptedKeyBlob,
@@ -57,7 +59,7 @@ impl<'a> TrustyLegacyKeyBlobHandler<'a> {
             info.try_extend_from_slice(&sdd_data.factory_reset_secret)?;
 
             // If the slot is zero, the per-key secret is empty.
-            let secret: &[u8] = if (slot == 0) { &[] } else { &sdd_data.secure_deletion_secret };
+            let secret: &[u8] = if slot == 0 { &[] } else { &sdd_data.secure_deletion_secret };
             info.try_extend_from_slice(&(secret.len() as u32).to_ne_bytes())?;
             info.try_extend_from_slice(&secret)?;
 
@@ -66,6 +68,7 @@ impl<'a> TrustyLegacyKeyBlobHandler<'a> {
         Ok(info)
     }
 
+    /// Derive the key encryption key for a keyblob.
     fn derive_kek(
         &self,
         root_kek: &kmr_common::crypto::RawKeyMaterial,
@@ -81,6 +84,7 @@ impl<'a> TrustyLegacyKeyBlobHandler<'a> {
         Ok(aes_key)
     }
 
+    /// Convert a keyblob from the legacy C++ format to the current format.
     fn convert_key(
         &self,
         keyblob: &[u8],
@@ -123,7 +127,6 @@ impl<'a> TrustyLegacyKeyBlobHandler<'a> {
             }
             (false, _, None) => None,
         };
-        let slot_idx: u32 = sdd_info.as_ref().map(|info| info.1).unwrap_or(NO_SDD_SLOT_IDX);
 
         // Convert the key characteristics to current form.
         let mut characteristics = vec_try![keymint::KeyCharacteristics {
@@ -255,7 +258,7 @@ impl<'a> TrustyLegacyKeyBlobHandler<'a> {
                     ),
                     EcCurve::Curve25519 => {
                         let key = crypto::ec::import_pkcs8_key(&raw_key_material)?;
-                        if let crypto::KeyMaterial::Ec(EcCurve::Curve25519, curve_type, ec_key) =
+                        if let crypto::KeyMaterial::Ec(EcCurve::Curve25519, curve_type, _ec_key) =
                             &key
                         {
                             match curve_type {
@@ -321,7 +324,7 @@ impl<'a> keyblob::LegacyKeyHandler for TrustyLegacyKeyBlobHandler<'a> {
                         slot
                     ));
                 }
-                if let Some(mut sdd_mgr) = self.sdd_mgr.as_mut() {
+                if let Some(sdd_mgr) = self.sdd_mgr.as_mut() {
                     if let Err(e) = sdd_mgr.delete_secret(SecureDeletionSlot(slot)) {
                         error!("failed to delete SDD slot {:?} for legacy key: {:?}", slot, e);
                     }

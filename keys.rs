@@ -15,27 +15,32 @@
  */
 //! Trusty implementation of RetrieveKeyMaterial.
 
-use alloc::{
-    string::{String, ToString},
-    vec::Vec,
-};
-use core::{array::TryFromSliceError, mem};
+use alloc::vec::Vec;
 use hwkey::{Hwkey, KdfVersion, OsRollbackVersion, RollbackVersionSource};
-use kmr_common::{
-    crypto, keyblob::legacy::AuthEncryptedBlobFormat, km_err, vec_try_with_capacity, Error,
-};
+use kmr_common::{crypto, km_err, vec_try_with_capacity, Error};
 use trusty_std::ffi::CStr;
 
 pub(crate) mod legacy;
 
+/// Size of a key agreement key in bytes.
 const TRUSTY_KM_KAK_SIZE: usize = 32;
+
+/// Size of a key wrapping key in bytes.
 const TRUSTY_KM_WRAPPING_KEY_SIZE: usize = 16;
+
+/// Key slot identification; matches the value used in
+/// `OpenSSLKeymasterEnforcement::GetKeyAgreementKey` in `openssl_keymaster_enforcement.cpp` for
+/// back-compatibility.
 const KM_KAK_SLOT_ID: &'static [u8] = b"com.android.trusty.keymint.kak\0";
 
+/// Key derivation input data; matches `kMasterKeyDerivationData` in `trusty_keymaster_context.cpp`
+/// for back-compatibility.
 const KM_KEY_DERIVATION_DATA: &'static [u8] = b"KeymasterMaster\0";
 
-const U32_SIZE: usize = mem::size_of::<u32>();
+/// Size of a `u32` value in bytes.
+const U32_SIZE: usize = core::mem::size_of::<u32>();
 
+/// Extract a (little-endian) serialized `u32`.
 fn deserialize_u32(bytes: &[u8], error_message: &str) -> Result<u32, Error> {
     let u32_bytes: [u8; U32_SIZE] = match bytes.try_into() {
         Ok(byte_array) => byte_array,
@@ -44,22 +49,23 @@ fn deserialize_u32(bytes: &[u8], error_message: &str) -> Result<u32, Error> {
     Ok(u32::from_le_bytes(u32_bytes))
 }
 
+/// Convert an [`OsRollbackVersion`] to an integer value, expanding `Current` along the way.
 fn os_rollback_version_to_u32(os_rollback_version: OsRollbackVersion) -> Result<u32, Error> {
     match os_rollback_version {
-        // If we get a "Current" version, we want to convert it to the specific version, so
-        // the context remains accurate if it is saved and used at a later time.
+        // If we get a `Current` version, we want to convert it to the specific version, so the
+        // context remains accurate if it is saved and used at a later time.
         OsRollbackVersion::Current => {
             let hwkey_session = match Hwkey::open() {
                 Ok(connection) => connection,
                 Err(_) => {
-                    return Err(km_err!(SecureHwCommunicationFailed, "HwKey connection error"))
+                    return Err(km_err!(SecureHwCommunicationFailed, "hwkey connection error"))
                 }
             };
             match hwkey_session.query_current_os_version(RollbackVersionSource::CommittedVersion) {
                 Ok(OsRollbackVersion::Version(n)) => Ok(n),
                 _ => Err(km_err!(
                     SecureHwCommunicationFailed,
-                    "Couldn't get current os rollback version"
+                    "couldn't get current os rollback version"
                 )),
             }
         }
@@ -67,41 +73,44 @@ fn os_rollback_version_to_u32(os_rollback_version: OsRollbackVersion) -> Result<
     }
 }
 
+/// Context information required for key derivation with versioned information.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct NonLegacyKeyContext {
     kdf_version: KdfVersion,
     os_rollback_version: OsRollbackVersion,
 }
 
-// KEK context provide information to derive the same Key Encryption Key used to encrypt a given
-// key. To be able to do that we need to know if the key is a legacy one or not; and if it is not a
-// legacy key; we need to know the KDF method used (although currently there is only 1 method) and
-// the Os Rollback version (more info on this parameters can be found on the trusty hwkey crate).
+/// KEK context that provides information to derive the same Key Encryption Key used to encrypt a
+/// given key. To be able to do that we need to know if the key is a legacy one or not; and if it is
+/// not a legacy key; we need to know the KDF method used (although currently there is only 1
+/// method) and the Os Rollback version (more info on this parameters can be found on the trusty
+/// hwkey crate).
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum TrustyKekContext {
     LegacyKey,
     NonLegacyKey(NonLegacyKeyContext),
 }
 
-// TrustyKekContext is serialized as 3 consecutive little endian U32 values:
-// [Context Version: u32]
-// [KDF Version: u32]
-// [OS Rollback Version: u32]
 impl TrustyKekContext {
-    // CONTEXT_VERSION will be serialized on the first 4 bytes of the raw context representation and
-    // it reperesents the version of the TrustyKekContext structure. If the structure is changed
-    // this number needs to be bumped and the serialize/deserialize functions updated
+    /// Current version of the serialized format of [`TrustyKekContext`] data.  If the structure is
+    /// changed this number needs to be bumped and the serialize/deserialize functions updated.
     const CONTEXT_VERSION: u32 = 1;
+
+    /// Offset of version marker for serialized data.
     const CONTEXT_VER_OFFSET: usize = 0;
-    // Reserving 4 bytes for non_legacy_key in case we want to
-    // replace it with the enum that represents the specific key format.
-    // For kek derivation we don't really use it; it is either a legacy
-    // key or not.
+    /// Offset of non-legacy key indicator in serialized data.  Reserves 4 bytes in case we want to
+    /// replace it with the enum that represents the specific key format.  For kek derivation we
+    /// don't really use it; it is either a legacy key or not.
     const NON_LEGACY_KEY_OFFSET: usize = Self::CONTEXT_VER_OFFSET + U32_SIZE;
+    /// Offset of KDF version in serialized data.
     const KDF_VER_OFFSET: usize = Self::NON_LEGACY_KEY_OFFSET + U32_SIZE;
+    /// Offset of OS rollback version in serialized data.
     const OS_ROLLBACK_VER_OFFSET: usize = Self::KDF_VER_OFFSET + U32_SIZE;
+
+    /// Overall size of serialized form in bytes.
     const SERIALIZED_SIZE: usize = Self::OS_ROLLBACK_VER_OFFSET + U32_SIZE;
 
+    /// Build a new `TrustyKekContext` from constituent values.
     fn new(
         non_legacy_key: bool,
         kdf_version: Option<KdfVersion>,
@@ -109,12 +118,12 @@ impl TrustyKekContext {
     ) -> Result<Self, Error> {
         if non_legacy_key {
             if kdf_version.is_none() {
-                return Err(km_err!(InvalidArgument, "Non legacy keys require a KDF version"));
+                return Err(km_err!(InvalidArgument, "non-legacy keys require a KDF version"));
             }
             if os_rollback_version.is_none() {
                 return Err(km_err!(
                     InvalidArgument,
-                    "Non legacy keys require an OS Rollback version"
+                    "non-legacy keys require an OS Rollback version"
                 ));
             }
             // Directly unwrapping values because we checked that they were not None
@@ -126,44 +135,45 @@ impl TrustyKekContext {
             }))
         } else {
             if kdf_version.is_some() {
-                return Err(km_err!(InvalidArgument, "Legacy keys do not use a KDF version"));
+                return Err(km_err!(InvalidArgument, "legacy keys do not use a KDF version"));
             }
             if os_rollback_version.is_some() {
                 return Err(km_err!(
                     InvalidArgument,
-                    "Legacy keys do nto use a OS Rollback version"
+                    "legacy keys do not use a OS Rollback version"
                 ));
             }
             Ok(TrustyKekContext::LegacyKey)
         }
     }
 
+    /// Build a [`TrustyKekContext`] from its serialized form.
     fn from_raw(raw_context: &[u8]) -> Result<Self, Error> {
         if raw_context.len() != Self::SERIALIZED_SIZE {
             return Err(km_err!(
                 InvalidArgument,
-                "Provided kek context had wrong size. Received {} bytes, expected {} bytes",
+                "provided kek context had wrong size ({} not {} bytes)",
                 raw_context.len(),
                 Self::SERIALIZED_SIZE
             ));
         }
         let context_version = deserialize_u32(
             &raw_context[..Self::NON_LEGACY_KEY_OFFSET],
-            "Couldn't deserialize context version",
+            "couldn't deserialize context version",
         )?;
         if context_version != Self::CONTEXT_VERSION {
-            return Err(km_err!(InvalidArgument, "Received invalid context version"));
+            return Err(km_err!(InvalidArgument, "invalid context version {}", context_version));
         }
         let non_legacy_key = deserialize_u32(
             &raw_context[Self::NON_LEGACY_KEY_OFFSET..Self::KDF_VER_OFFSET],
-            "Couldn't deserialize kdf version",
+            "couldn't deserialize kdf version",
         )?;
         match non_legacy_key {
             0 => Ok(TrustyKekContext::LegacyKey),
             1 => {
                 let kdf_version = deserialize_u32(
                     &raw_context[Self::KDF_VER_OFFSET..Self::OS_ROLLBACK_VER_OFFSET],
-                    "Couldn't deserialize kdf version",
+                    "couldn't deserialize kdf version",
                 )?;
                 let kdf_version = KdfVersion::from(kdf_version);
                 let os_rollback_version = deserialize_u32(
@@ -176,10 +186,16 @@ impl TrustyKekContext {
                     os_rollback_version,
                 }))
             }
-            _ => Err(km_err!(InvalidArgument, "Received invalid non legacy key value")),
+            v => Err(km_err!(InvalidArgument, "invalid non legacy key value {}", v)),
         }
     }
 
+    /// Convert a [`TrustyKekContext`] into its serialized form, as 4 consecutive little-endian U32
+    /// values:
+    /// - context version
+    /// - non-legacy key indicator
+    /// - KDF version
+    /// - OS rollback version.
     fn to_raw(&self) -> Result<Vec<u8>, Error> {
         // For legacy keys giving 0 values for OS and KDF version. These values will be ignored on
         // deserialization.
@@ -200,17 +216,19 @@ impl TrustyKekContext {
     }
 }
 
+/// Key material retrieval implementation for Trusty.
 pub struct TrustyKeys;
 
-//TODO: Change traits definitions to support kek and kak keys stored on hardware if needed.
-//      RawKeyMaterial assume that the key will be passed in the clear, which won't be the case
-//      if the IP block never releases the key. KeyMaterial type fixes that issue by including
-//      Opaque keys, but RawKeys are not included on KeyMaterial.
+// TODO: Change traits definitions to support kek and kak keys stored on hardware if needed.
+//       RawKeyMaterial assume that the key will be passed in the clear, which won't be the case
+//       if the IP block never releases the key. KeyMaterial type fixes that issue by including
+//       Opaque keys, but RawKeys are not included in KeyMaterial.
 impl kmr_ta::device::RetrieveKeyMaterial for TrustyKeys {
     fn root_kek(&self, context: &[u8]) -> Result<crypto::RawKeyMaterial, Error> {
         let context = TrustyKekContext::from_raw(context)?;
-        let hwkey_session = Hwkey::open()
-            .map_err(|_| km_err!(SecureHwCommunicationFailed, "Failed to connect to HwKey"))?;
+        let hwkey_session = Hwkey::open().map_err(|e| {
+            km_err!(SecureHwCommunicationFailed, "failed to connect to hwkey: {:?}", e)
+        })?;
 
         let mut key_buffer = [0; TRUSTY_KM_WRAPPING_KEY_SIZE];
 
@@ -223,15 +241,17 @@ impl kmr_ta::device::RetrieveKeyMaterial for TrustyKeys {
                     .os_rollback_version(context.os_rollback_version)
                     .rollback_version_source(RollbackVersionSource::CommittedVersion)
                     .derive(KM_KEY_DERIVATION_DATA, &mut key_buffer)
-                    .map_err(|_| km_err!(SecureHwCommunicationFailed, "Couldn't derive key"))?;
+                    .map_err(|e| {
+                        km_err!(SecureHwCommunicationFailed, "failed to derive key: {:?}", e)
+                    })?;
             }
             TrustyKekContext::LegacyKey => {
                 let _ = hwkey_session
                     .derive_key_req()
                     .kdf(KdfVersion::Version(1))
                     .derive(KM_KEY_DERIVATION_DATA, &mut key_buffer)
-                    .map_err(|_| {
-                        km_err!(SecureHwCommunicationFailed, "Couldn't derive legacy key")
+                    .map_err(|e| {
+                        km_err!(SecureHwCommunicationFailed, "failed to derive legacy key: {:?}", e)
                     })?;
             }
         }
@@ -244,14 +264,16 @@ impl kmr_ta::device::RetrieveKeyMaterial for TrustyKeys {
     }
 
     fn kak(&self) -> Result<crypto::aes::Key, Error> {
-        let hwkey_session = Hwkey::open()
-            .map_err(|_| km_err!(SecureHwCommunicationFailed, "Failed to connect to HwKey"))?;
+        let hwkey_session = Hwkey::open().map_err(|e| {
+            km_err!(SecureHwCommunicationFailed, "failed to connect to HwKey: {:?}", e)
+        })?;
         let mut key_buffer = [0; TRUSTY_KM_KAK_SIZE];
         let keyslot = CStr::from_bytes_with_nul(KM_KAK_SLOT_ID)
             .expect("should never happen, KM_KAK_SLOT_ID follows from_bytes_with_nul rules");
-        let kak = hwkey_session
+        let _kak = hwkey_session
             .get_keyslot_data(keyslot, &mut key_buffer)
-            .map_err(|_| km_err!(SecureHwCommunicationFailed, "Couldn't retrieve kak"))?;
+            .map_err(|e| km_err!(SecureHwCommunicationFailed, "failed to retrieve kak: {:?}", e))?;
+        // TODO: check whether `key_buffer` needs truncating to size of `_kak`.
         Ok(crypto::aes::Key::Aes256(key_buffer))
     }
 }
@@ -273,8 +295,8 @@ mod tests {
             crypto::aes::Key::Aes256(key) => key,
             _ => panic!("Wrong type of key received"),
         };
-        // Getting an all 0 key agreement key by chance is not likely if we got a
-        // connection to HWKey
+        // Getting an all 0 key agreement key by chance is not likely if we got a connection to
+        // HWKey
         expect_ne!(key, [0; TRUSTY_KM_KAK_SIZE], "key agreement key should not be 0s");
     }
 
@@ -300,8 +322,8 @@ mod tests {
             .root_kek(&trusty_keys.kek_context().expect("Couldn't get kek context"))
             .expect("Couldn't get kek");
 
-        // Getting an all 0 key encryption key by chance is not likely if we got a
-        // connection to HWKey
+        // Getting an all 0 key encryption key by chance is not likely if we got a connection to
+        // HWKey
         expect_ne!(
             kek.0,
             [0; TRUSTY_KM_WRAPPING_KEY_SIZE].to_vec(),
@@ -439,7 +461,7 @@ mod tests {
 
     #[test]
     fn test_kek_context_creation() {
-        //Testing that non legacy context requires all parameters to be present
+        // Testing that non legacy context requires all parameters to be present
         let non_legacy_ctx = TrustyKekContext::new(true, None, Some(OsRollbackVersion::Version(2)));
         expect!(
             non_legacy_ctx.is_err(),
@@ -456,7 +478,7 @@ mod tests {
             Some(OsRollbackVersion::Version(2)),
         );
         expect!(non_legacy_ctx.is_ok(), "Couldn't create non legacy context");
-        //Testing that legacy context requires all optional parameters to be None
+        // Testing that legacy context requires all optional parameters to be None
         let legacy_ctx = TrustyKekContext::new(
             false,
             Some(KdfVersion::Best),

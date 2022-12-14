@@ -18,13 +18,12 @@
 
 use hwbcc::{get_bcc, sign_data, HwBccMode, SigningAlgorithm, HWBCC_MAX_RESP_PAYLOAD_LENGTH};
 use hwkey::{Hwkey, KdfVersion};
-use kmr_common::{crypto, log_unimpl, rpc_err, unimpl, vec_try, Error};
+use kmr_common::{crypto, rpc_err, vec_try, Error};
 use kmr_ta::device::{
     CsrSigningAlgorithm, DiceInfo, PubDiceArtifacts, RetrieveRpcArtifacts, RpcV2Req,
 };
 use kmr_ta::rkp::serialize_cbor;
-use kmr_wire::{cbor::value::Value, coset::AsCborValue, rpc, CborError};
-use log::error;
+use kmr_wire::{cbor::value::Value, rpc};
 
 // This matches the value of kMasterKeyDerivationData in
 // trusty/user/app/keymaster/trusty_remote_provisioning_context.cpp
@@ -91,7 +90,7 @@ impl RetrieveRpcArtifacts for TrustyRpc {
             _ => {
                 return Err(rpc_err!(
                     Failed,
-                    "Requested signing algorithm: {:?}, but only ED25519 is supported.",
+                    "requested signing algorithm: {:?}, but only ED25519 is supported.",
                     signing_algorithm
                 ));
             }
