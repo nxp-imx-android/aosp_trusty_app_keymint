@@ -64,7 +64,7 @@ impl Deserialize for KMMessage {
     type Error = TipcError;
     const MAX_SERIALIZED_SIZE: usize = KEYMINT_MAX_BUFFER_LENGTH;
 
-    fn deserialize(bytes: &[u8], _handles: &[Handle]) -> Result<Self, TipcError> {
+    fn deserialize(bytes: &[u8], _handles: &mut [Option<Handle>]) -> Result<Self, TipcError> {
         Ok(KMMessage(Vec::try_alloc_from(bytes)?))
     }
 }
