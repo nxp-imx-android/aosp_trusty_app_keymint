@@ -15,7 +15,7 @@
  */
 use keymint::{
     AttestationIds, CertSignInfo, SharedSddManager, TrustyAes, TrustyKeys, TrustyMonotonicCLock,
-    TrustySecureDeletionSecretManager, TrustyStorageKeyWrapper,
+    TrustyRpc, TrustySecureDeletionSecretManager, TrustyStorageKeyWrapper,
 };
 use kmr_common::crypto;
 use kmr_crypto_boring::{
@@ -73,6 +73,7 @@ fn main() {
         sdd_mgr: Some(&mut legacy_sdd_mgr),
         keys: &trusty_keys,
     };
+    let trusty_rpc = TrustyRpc;
     let dev = kmr_ta::device::Implementation {
         keys: &trusty_keys,
         sign_info: &sign_info,
@@ -82,8 +83,7 @@ fn main() {
         sk_wrapper: Some(&key_wrapper),
         tup: &kmr_ta::device::TrustedPresenceUnsupported,
         legacy_key: Some(&mut legacy_key),
-        // TODO (b/253926846) add HWBCC backed implementation
-        rpc: &kmr_ta::device::NoOpRetrieveRpcArtifacts,
+        rpc: &trusty_rpc,
     };
     keymint::handle_port_connections(hw_info, RpcInfo::V3(rpc_info_v3), imp, dev)
         .expect("handle_port_connections returned an error");
