@@ -20,9 +20,9 @@ use kmr_common::{
     crypto::{self, hmac},
     km_err,
     wire::legacy::{
-        self, ConfigureBootPatchlevelResponse, GetAuthTokenKeyResponse, SetBootParamsResponse,
-        TrustyMessageId, TrustyPerformOpReq, TrustyPerformOpRsp, TrustyPerformSecureOpReq,
-        TrustyPerformSecureOpRsp,
+        self, ConfigureBootPatchlevelResponse, GetAuthTokenKeyResponse, GetVersion2Response,
+        GetVersionResponse, SetBootParamsResponse, TrustyMessageId, TrustyPerformOpReq,
+        TrustyPerformOpRsp, TrustyPerformSecureOpReq, TrustyPerformSecureOpRsp,
     },
     Error,
 };
@@ -234,6 +234,25 @@ impl<'a> KMLegacyService<'a> {
 
         // Handling received message
         match req_msg {
+            TrustyPerformOpReq::GetVersion(_req) => {
+                // Match the values returned by C++ KeyMint (from `AndroidKeymaster::GetVersion`).
+                Ok(TrustyPerformOpRsp::GetVersion(GetVersionResponse {
+                    major_ver: 2,
+                    minor_ver: 0,
+                    subminor_ver: 0,
+                }))
+            }
+            TrustyPerformOpReq::GetVersion2(req) => {
+                // Match the values returned by C++ KeyMint (from `AndroidKeymaster::GetVersion2`).
+                let km_version = legacy::KmVersion::KeyMint3;
+                let message_version = km_version.message_version();
+                let max_message_version = core::cmp::min(req.max_message_version, message_version);
+                Ok(TrustyPerformOpRsp::GetVersion2(GetVersion2Response {
+                    max_message_version,
+                    km_version,
+                    km_date: legacy::KM_DATE,
+                }))
+            }
             TrustyPerformOpReq::SetBootParams(req) => {
                 // Check if this is the first time we receive a SetBootParams cmd
                 if self.boot_info.borrow().is_some() {
@@ -306,14 +325,25 @@ impl<'a> Service for KMLegacyService<'a> {
             error!("Received error when parsing legacy message: {:?}", e);
             TipcError::InvalidData
         })?;
-        let resp_msg = self.handle_message(req_msg).map_err(|e| {
-            error!("Received error when handling legacy message: {:?}", e);
-            TipcError::UnknownError
-        })?;
-        let resp = legacy::serialize_trusty_rsp(&resp_msg).map_err(|e| {
-            error!("Received error when parsing legacy response message: {:?}", e);
-            TipcError::InvalidData
-        })?;
+        let op = req_msg.code();
+
+        let resp = match self.handle_message(req_msg) {
+            Ok(resp_msg) => legacy::serialize_trusty_rsp(resp_msg).map_err(|e| {
+                error!("failed to serialize legacy response message: {:?}", e);
+                TipcError::InvalidData
+            })?,
+            Err(Error::Hal(rc, msg)) => {
+                error!("operation {:?} failed: {:?} {}", op, rc, msg);
+                legacy::serialize_trusty_error_rsp(op, rc).map_err(|e| {
+                    error!("failed to serialize legacy error {:?} response message: {:?}", rc, e);
+                    TipcError::InvalidData
+                })?
+            }
+            Err(e) => {
+                error!("error handling legacy message: {:?}", e);
+                return Err(TipcError::UnknownError);
+            }
+        };
         handle.send(&KMMessage(resp))?;
         Ok(true)
     }
@@ -326,6 +356,23 @@ struct KMSecureService<'a> {
 impl<'a> KMSecureService<'a> {
     fn new(km_ta: Rc<RefCell<KeyMintTa<'a>>>) -> Self {
         KMSecureService { km_ta }
+    }
+    fn handle_message(
+        &self,
+        req_msg: TrustyPerformSecureOpReq,
+    ) -> Result<TrustyPerformSecureOpRsp, Error> {
+        match req_msg {
+            TrustyPerformSecureOpReq::GetAuthTokenKey(_) => {
+                match self.km_ta.borrow().get_hmac_key() {
+                    Some(mut payload) => {
+                        Ok(TrustyPerformSecureOpRsp::GetAuthTokenKey(GetAuthTokenKeyResponse {
+                            key_material: mem::take(&mut payload.0),
+                        }))
+                    }
+                    None => Err(km_err!(UnknownError, "hmac_key is not available")),
+                }
+            }
+        }
     }
 }
 
@@ -359,27 +406,30 @@ impl<'a> Service for KMSecureService<'a> {
             error!("Received error when parsing message: {:?}", e);
             TipcError::InvalidData
         })?;
-        match req_msg {
-            TrustyPerformSecureOpReq::GetAuthTokenKey(_) => {
-                let resp_msg = match self.km_ta.borrow().get_hmac_key() {
-                    Some(mut payload) => {
-                        TrustyPerformSecureOpRsp::GetAuthTokenKey(GetAuthTokenKeyResponse {
-                            key_material: mem::take(&mut payload.0),
-                        })
-                    }
-                    None => {
-                        error!("hmac_key is not available");
-                        return Err(TipcError::UnknownError);
-                    }
-                };
-                let resp = legacy::serialize_trusty_secure_rsp(&resp_msg).map_err(|e| {
-                    error!("Received error when parsing response message: {:?}", e);
+        let op = req_msg.code();
+
+        let resp = match self.handle_message(req_msg) {
+            Ok(resp_msg) => legacy::serialize_trusty_secure_rsp(resp_msg).map_err(|e| {
+                error!("failed to serialize legacy response secure message: {:?}", e);
+                TipcError::InvalidData
+            })?,
+            Err(Error::Hal(rc, msg)) => {
+                error!("operation {:?} failed: {:?} {}", op, rc, msg);
+                legacy::serialize_trusty_secure_error_rsp(op, rc).map_err(|e| {
+                    error!(
+                        "failed to serialize legacy error {:?} response secure message: {:?}",
+                        rc, e
+                    );
                     TipcError::InvalidData
-                })?;
-                handle.send(&KMMessage(resp))?;
-                Ok(true)
+                })?
             }
-        }
+            Err(e) => {
+                error!("error handling secure legacy message: {:?}", e);
+                return Err(TipcError::UnknownError);
+            }
+        };
+        handle.send(&KMMessage(resp))?;
+        Ok(true)
     }
 }
 
@@ -445,7 +495,8 @@ pub fn handle_port_connections<'a>(
                 e
             )
         })?
-        .allow_ta_connect();
+        .allow_ta_connect()
+        .allow_ns_connect();
     dispatcher.add_service(Rc::new(legacy_service), cfg).map_err(|e| {
         km_err!(UnknownError, "could not add secure service to dispatcher. Received error: {:?}", e)
     })?;
