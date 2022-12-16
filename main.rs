@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 use keymint::{
-    AttestationIds, CertSignInfo, SharedSddManager, TrustyKeys, TrustyMonotonicCLock,
+    AttestationIds, CertSignInfo, SharedSddManager, TrustyAes, TrustyKeys, TrustyMonotonicCLock,
     TrustySecureDeletionSecretManager, TrustyStorageKeyWrapper,
 };
 use kmr_common::crypto;
@@ -47,11 +47,12 @@ fn main() {
 
     let mut rng = BoringRng::default();
     let clock = TrustyMonotonicCLock;
+    let aes = TrustyAes::default();
     let imp = crypto::Implementation {
         rng: &mut rng,
         clock: Some(&clock),
         compare: &BoringEq,
-        aes: &BoringAes,
+        aes: &aes,
         des: &BoringDes,
         hmac: &BoringHmac,
         rsa: &BoringRsa::default(),
