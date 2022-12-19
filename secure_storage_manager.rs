@@ -14,27 +14,35 @@
  * limitations under the License.
  */
 //! Module used to interact with keymint secure storage data.
+use crate::keymaster_attributes;
 use alloc::{format, string::String, vec::Vec};
 use kmr_common::{
     crypto::{self, KeyMaterial},
     km_err, vec_try, vec_try_with_capacity,
-    wire::keymint::{self, ErrorCode},
+    wire::keymint,
     wire::AttestationIdInfo,
     Error,
 };
 use kmr_ta::device::{
     RetrieveAttestationIds, RetrieveCertSigningInfo, SigningAlgorithm, SigningKeyType,
 };
+use log::info;
+use protobuf::{self, Message};
 use storage::{OpenMode, Port, SecureFile, Session};
 
-use protobuf::{self, Message};
+#[cfg(feature = "soft_attestation_fallback")]
+mod software;
 
-use crate::keymaster_attributes;
-
+/// Name of file holding attestation device ID information; matches the `kAttestationIdsFileName`
+/// value in `secure_storage_manager.cpp` for back-compatibility.
 const KM_ATTESTATION_ID_FILENAME: &'static str = "AttestationIds";
 
+/// Filename prefix for files holding attestation keys and certificates; matches the
+/// `kAttestKeyCertPrefix` value in `secure_storage_manager.cpp` for back-compatibility.
 const KM_ATTESTATION_KEY_CERT_PREFIX: &'static str = "AttestKeyCert";
 
+/// Return the filename for the file holding attestation keys and certificates for the specified
+/// signing algorithm.
 fn get_key_slot_file_name(algorithm: SigningAlgorithm) -> String {
     let suffix = match algorithm {
         SigningAlgorithm::Ec => "ec",
@@ -43,38 +51,43 @@ fn get_key_slot_file_name(algorithm: SigningAlgorithm) -> String {
     format!("{}.{}", KM_ATTESTATION_KEY_CERT_PREFIX, suffix)
 }
 
+/// Delete all attestation IDs from secure storage.
 pub(crate) fn delete_attestation_ids() -> Result<(), Error> {
-    let mut session = Session::new(Port::TamperProof, true)
-        .map_err(|_| km_err!(SecureHwCommunicationFailed, "Failed to connect to storage port"))?;
-    session
-        .remove(KM_ATTESTATION_ID_FILENAME)
-        .map_err(|_| km_err!(SecureHwCommunicationFailed, "Couldn't delete atestation IDs file"))?;
+    let mut session = Session::new(Port::TamperProof, true).map_err(|e| {
+        km_err!(SecureHwCommunicationFailed, "failed to connect to storage port: {:?}", e)
+    })?;
+    session.remove(KM_ATTESTATION_ID_FILENAME).map_err(|e| {
+        km_err!(SecureHwCommunicationFailed, "failed to delete attestation IDs file: {:?}", e)
+    })?;
     Ok(())
 }
 
+/// Return the contents of the specified file in secure storage.
 fn get_file_contents(file_name: &str) -> Result<Vec<u8>, Error> {
-    let mut session = Session::new(Port::TamperProof, true)
-        .map_err(|_| km_err!(SecureHwCommunicationFailed, "Failed to connect to storage port"))?;
-    let file = session
-        .open_file(file_name, OpenMode::Open)
-        .map_err(|_| km_err!(SecureHwCommunicationFailed, "Couldn't open {}", file_name))?;
-    let size = session
-        .get_size(&file)
-        .map_err(|_| km_err!(SecureHwCommunicationFailed, "Couldn't get {} size", file_name))?;
+    let mut session = Session::new(Port::TamperProof, true).map_err(|e| {
+        km_err!(SecureHwCommunicationFailed, "failed to connect to storage port: {:?}", e)
+    })?;
+    let file = session.open_file(file_name, OpenMode::Open).map_err(|e| {
+        km_err!(SecureHwCommunicationFailed, "failed to open '{}': {:?}", file_name, e)
+    })?;
+    let size = session.get_size(&file).map_err(|e| {
+        km_err!(SecureHwCommunicationFailed, "failed to get size for '{}': {:?}", file_name, e)
+    })?;
     let mut buffer = vec_try![0; size]?;
-    let content = session
-        .read_all(&file, buffer.as_mut_slice())
-        .map_err(|_| km_err!(SecureHwCommunicationFailed, "Couldn't read {}", file_name))?;
+    let content = session.read_all(&file, buffer.as_mut_slice()).map_err(|e| {
+        km_err!(SecureHwCommunicationFailed, "failed to read '{}': {:?}", file_name, e)
+    })?;
     let total_size = content.len();
     buffer.resize(total_size, 0);
     Ok(buffer)
 }
 
+/// Retrieve the attestation ID information from secure storage.
 pub(crate) fn read_attestation_ids() -> Result<AttestationIdInfo, Error> {
     let content = get_file_contents(KM_ATTESTATION_ID_FILENAME)?;
     let mut attestation_ids_pb: keymaster_attributes::AttestationIds =
         Message::parse_from_bytes(content.as_slice())
-            .map_err(|_| km_err!(UnknownError, "Couldn't parse attestation IDs proto"))?;
+            .map_err(|e| km_err!(UnknownError, "failed to parse attestation IDs proto: {:?}", e))?;
 
     let brand = attestation_ids_pb.take_brand();
     let device = attestation_ids_pb.take_device();
@@ -88,6 +101,7 @@ pub(crate) fn read_attestation_ids() -> Result<AttestationIdInfo, Error> {
     Ok(AttestationIdInfo { brand, device, product, serial, imei, meid, manufacturer, model })
 }
 
+/// Retrieve that attestation key information for the specified signing algorithm.
 fn read_attestation_key_content(
     key_type: SigningKeyType,
 ) -> Result<keymaster_attributes::AttestationKey, Error> {
@@ -95,10 +109,11 @@ fn read_attestation_key_content(
     let content = get_file_contents(&file_name)?;
 
     let pb = Message::parse_from_bytes(content.as_slice())
-        .map_err(|_| km_err!(UnknownError, "Couldn't parse attestation key proto"))?;
+        .map_err(|e| km_err!(UnknownError, "failed to  parse attestation key proto: {:?}", e))?;
     Ok(pb)
 }
 
+/// Retrieve the specified attestation key from the file in secure storage.
 pub(crate) fn read_attestation_key(key_type: SigningKeyType) -> Result<KeyMaterial, Error> {
     let mut attestation_key_pb: keymaster_attributes::AttestationKey =
         read_attestation_key_content(key_type)?;
@@ -110,12 +125,11 @@ pub(crate) fn read_attestation_key(key_type: SigningKeyType) -> Result<KeyMateri
     let key = match key_type.algo_hint {
         SigningAlgorithm::Ec => crypto::ec::import_pkcs8_key(key_buffer.as_slice())?,
         SigningAlgorithm::Rsa => {
-            let (key_material, key_size, exponent) =
+            let (key_material, _key_size, _exponent) =
                 crypto::rsa::import_pkcs8_key(key_buffer.as_slice())?;
             key_material
         }
     };
-    // TODO: Do we need to support KEYMASTER_SOFT_ATTESTATION_FALLBACK flow?
     Ok(key)
 }
 
@@ -125,7 +139,7 @@ pub(crate) fn get_cert_chain(key_type: SigningKeyType) -> Result<Vec<keymint::Ce
     let certs = attestation_certs_pb.take_certs();
 
     let num_certs = certs.len();
-    if (num_certs == 0) {
+    if num_certs == 0 {
         return Err(km_err!(UnknownError, "Attestation Key file found but it had no certs"));
     }
     let mut certificates = vec_try_with_capacity!(num_certs)?;
@@ -133,10 +147,11 @@ pub(crate) fn get_cert_chain(key_type: SigningKeyType) -> Result<Vec<keymint::Ce
         let certificate = keymint::Certificate { encoded_certificate: cert.take_content() };
         certificates.push(certificate);
     }
-    // TODO: Do we need to support KEYMASTER_SOFT_ATTESTATION_FALLBACK flow?
     Ok(certificates)
 }
 
+/// Implementation of attestation ID retrieval trait based on protobuf-encoded data in a file in
+/// secure storage.
 pub struct AttestationIds;
 
 impl RetrieveAttestationIds for AttestationIds {
@@ -150,15 +165,31 @@ impl RetrieveAttestationIds for AttestationIds {
     }
 }
 
+/// Implementation of attestation signing key retrieval trait based on data held in files in secure
+/// storage.
 pub struct CertSignInfo;
 
 impl RetrieveCertSigningInfo for CertSignInfo {
     fn signing_key(&self, key_type: SigningKeyType) -> Result<KeyMaterial, Error> {
-        read_attestation_key(key_type)
+        let result = read_attestation_key(key_type);
+        #[cfg(feature = "soft_attestation_fallback")]
+        if let Err(e) = result {
+            info!("failed to read attestation key ({:?}), fall back to test key", e);
+            let fake = software::CertSignInfo::new();
+            return fake.signing_key(key_type);
+        }
+        result
     }
 
     fn cert_chain(&self, key_type: SigningKeyType) -> Result<Vec<keymint::Certificate>, Error> {
-        get_cert_chain(key_type)
+        let result = get_cert_chain(key_type);
+        #[cfg(feature = "soft_attestation_fallback")]
+        if let Err(e) = result {
+            info!("failed to read attestation chain ({:?}), fall back to test chain", e);
+            let fake = software::CertSignInfo::new();
+            return fake.cert_chain(key_type);
+        }
+        result
     }
 }
 

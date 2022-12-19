@@ -38,6 +38,9 @@ MODULE_LIBRARY_DEPS += \
 	trusty/user/base/lib/trusty-log \
 	trusty/user/base/lib/trusty-std \
 
+MODULE_RUSTFLAGS += \
+	--cfg 'feature="soft_attestation_fallback"' \
+
 MODULE_RUST_TESTS := true
 
 include make/library.mk
