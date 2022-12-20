@@ -5,7 +5,9 @@ use kmr_common::keyblob::{
     legacy, SecureDeletionData, SecureDeletionSecretManager, SecureDeletionSlot,
 };
 use kmr_common::{
-    crypto, crypto::aes, get_opt_tag_value, get_tag_value, keyblob, km_err, tag, try_to_vec,
+    crypto,
+    crypto::{aes, OpaqueKeyMaterial, OpaqueOr},
+    get_bool_tag_value, get_opt_tag_value, get_tag_value, keyblob, km_err, tag, try_to_vec,
     vec_try, Error, FallibleAllocExt,
 };
 use kmr_ta::device;
@@ -17,9 +19,9 @@ use kmr_wire::{
 use log::error;
 
 /// Prefix for KEK derivation input when secure deletion not supported.
-const AES_GCM_DESCRIPTOR_V1: &[u8] = b"AES-256-GCM-HKDF-SHA-256, version 1";
+const AES_GCM_DESCRIPTOR_V1: &[u8] = b"AES-256-GCM-HKDF-SHA-256, version 1\0";
 /// Prefix for KEK derivation input when secure deletion supported.
-const AES_GCM_DESCRIPTOR_V2: &[u8] = b"AES-256-GCM-HKDF-SHA-256, version 2";
+const AES_GCM_DESCRIPTOR_V2: &[u8] = b"AES-256-GCM-HKDF-SHA-256, version 2\0";
 
 /// Slot number used to indicate that a key has no per-key secure deletion data.
 const NO_SDD_SLOT_IDX: u32 = 0;
@@ -192,7 +194,14 @@ impl<'a> TrustyLegacyKeyBlobHandler<'a> {
         let key_material = match get_tag_value!(chars, Algorithm, ErrorCode::InvalidKeyBlob)? {
             // Symmetric keys have the key material stored as raw bytes.
             Algorithm::Aes => {
-                crypto::KeyMaterial::Aes(crypto::aes::Key::new(raw_key_material)?.into())
+                // Special case: an AES key might be a storage key.
+                if get_bool_tag_value!(chars, StorageKey)? {
+                    // Storage key is opaque data.
+                    crypto::KeyMaterial::Aes(OpaqueOr::Opaque(OpaqueKeyMaterial(raw_key_material)))
+                } else {
+                    // Normal case: expect explicit AES key material.
+                    crypto::KeyMaterial::Aes(crypto::aes::Key::new(raw_key_material)?.into())
+                }
             }
             Algorithm::TripleDes => {
                 crypto::KeyMaterial::TripleDes(crypto::des::Key::new(raw_key_material)?.into())

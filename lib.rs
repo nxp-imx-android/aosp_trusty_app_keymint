@@ -28,7 +28,7 @@ mod secure_deletion_secret_manager;
 mod secure_storage_manager;
 
 pub use ipc_manager::handle_port_connections;
-pub use key_wrapper::TrustyStorageKeyWrapper;
+pub use key_wrapper::{TrustyAes, TrustyStorageKeyWrapper};
 pub use keys::legacy::TrustyLegacyKeyBlobHandler;
 pub use keys::TrustyKeys;
 pub use monotonic_clock::TrustyMonotonicCLock;
