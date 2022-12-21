@@ -20,10 +20,10 @@ use core::{cell::RefCell, mem};
 use kmr_common::{
     crypto, km_err,
     wire::legacy::{
-        self, ConfigureBootPatchlevelResponse, GetAuthTokenKeyResponse, GetVersion2Response,
-        GetVersionResponse, SetAttestationIdsResponse, SetAttestationKeyResponse,
-        SetBootParamsResponse, TrustyMessageId, TrustyPerformOpReq, TrustyPerformOpRsp,
-        TrustyPerformSecureOpReq, TrustyPerformSecureOpRsp,
+        self, ConfigureBootPatchlevelResponse, GetAuthTokenKeyResponse, GetDeviceInfoResponse,
+        GetVersion2Response, GetVersionResponse, SetAttestationIdsResponse,
+        SetAttestationKeyResponse, SetBootParamsResponse, TrustyMessageId, TrustyPerformOpReq,
+        TrustyPerformOpRsp, TrustyPerformSecureOpReq, TrustyPerformSecureOpRsp,
     },
     Error,
 };
@@ -422,6 +422,24 @@ impl<'a> KMSecureService<'a> {
                     }
                     None => Err(km_err!(UnknownError, "hmac_key is not available")),
                 }
+            }
+            TrustyPerformSecureOpReq::GetDeviceInfo(_) => {
+                Ok(TrustyPerformSecureOpRsp::GetDeviceInfo(GetDeviceInfoResponse {
+                    device_ids: self.km_ta.borrow().rpc_device_info()?,
+                }))
+            }
+            TrustyPerformSecureOpReq::SetAttestationIds(req) => {
+                secure_storage_manager::provision_attestation_id_file(
+                    &req.brand,
+                    &req.product,
+                    &req.device,
+                    &req.serial,
+                    &req.imei,
+                    &req.meid,
+                    &req.manufacturer,
+                    &req.model,
+                )?;
+                Ok(TrustyPerformSecureOpRsp::SetAttestationIds(SetAttestationIdsResponse {}))
             }
         }
     }
