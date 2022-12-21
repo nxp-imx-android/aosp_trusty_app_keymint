@@ -514,7 +514,7 @@ pub fn handle_port_connections<'a>(
 mod tests {
     use super::*;
     use kmr_wire::{
-        keymint::VerifiedBootState,
+        keymint::{ErrorCode, VerifiedBootState},
         legacy::{self, InnerSerialize},
     };
     use test::{expect, expect_eq, expect_ne};
@@ -535,12 +535,31 @@ mod tests {
         let session3 = Handle::connect(port3.as_c_str()).unwrap();
     }
 
+    fn check_response_status(rsp: &KMMessage) -> Result<(), ErrorCode> {
+        let error_code = legacy::deserialize_trusty_rsp_error_code(&rsp.0)
+            .expect("Couldn't retrieve error code");
+        if error_code == ErrorCode::Ok {
+            Ok(())
+        } else {
+            Err(error_code)
+        }
+    }
+
+    fn get_message_request(cmd: u32) -> Vec<u8> {
+        (cmd << legacy::TRUSTY_CMD_SHIFT).to_ne_bytes().to_vec()
+    }
+
+    fn get_response_status(session: &Handle) -> Result<(), ErrorCode> {
+        let mut buf = [0; KEYMINT_MAX_BUFFER_LENGTH as usize];
+        let response: KMMessage =
+            session.recv(&mut buf).map_err(|_| ErrorCode::SecureHwCommunicationFailed)?;
+        check_response_status(&response)
+    }
+
     fn get_configure_boot_patchlevel_message(
         boot_patchlevel: u32,
     ) -> Result<Vec<u8>, legacy::Error> {
-        let mut req = Vec::<u8>::new();
-        let cmd = CONFIGURE_BOOT_PATCHLEVEL_CMD << legacy::TRUSTY_CMD_SHIFT;
-        req.extend_from_slice(&cmd.to_ne_bytes());
+        let mut req = get_message_request(CONFIGURE_BOOT_PATCHLEVEL_CMD);
         boot_patchlevel.serialize_into(&mut req)?;
         Ok(req)
     }
@@ -553,9 +572,7 @@ mod tests {
         verified_boot_key: Vec<u8>,
         verified_boot_hash: Vec<u8>,
     ) -> Result<Vec<u8>, legacy::Error> {
-        let mut req = Vec::<u8>::new();
-        let cmd = SET_BOOT_PARAMS_CMD << legacy::TRUSTY_CMD_SHIFT;
-        req.extend_from_slice(&cmd.to_ne_bytes());
+        let mut req = get_message_request(SET_BOOT_PARAMS_CMD);
         os_version.serialize_into(&mut req)?;
         os_patchlevel.serialize_into(&mut req)?;
         device_locked.serialize_into(&mut req)?;
@@ -590,9 +607,8 @@ mod tests {
 
         // Sending SetBootParamsRequest
         session.send(&set_boot_param_req);
-        let buf = &mut [0; KEYMINT_MAX_BUFFER_LENGTH as usize];
-        let response: Result<KMMessage, _> = session.recv(buf);
-        expect!(response.is_ok(), "Should be able to call SetBootParams");
+        let km_error_code = get_response_status(&session);
+        expect!(km_error_code.is_ok(), "Should be able to call SetBootParams");
 
         // Creating a ConfigureBootPatchlevelRequest message
         let boot_patchlevel = 0x20201010;
@@ -602,23 +618,19 @@ mod tests {
 
         // Sending ConfigureBootPatchlevelRequest
         session.send(&configure_bootpatchlevel_req);
-        let buf = &mut [0; KEYMINT_MAX_BUFFER_LENGTH as usize];
-        let response: Result<KMMessage, _> = session.recv(buf);
-        expect!(response.is_ok(), "Should be able to call ConfigureBootPatchlevel");
+        let km_error_code = get_response_status(&session);
+        expect!(km_error_code.is_ok(), "Should be able to call ConfigureBootPatchlevel");
 
         // Checking that sending the message a second time fails
         session.send(&set_boot_param_req);
-        let response: Result<KMMessage, _> = session.recv(buf);
-        expect!(response.is_err(), "Shouldn't be able to call SetBootParams a second time");
-
-        // Last message will kill our session, recreate it
-        let session = Handle::connect(port.as_c_str()).unwrap();
+        let km_error_code = get_response_status(&session);
+        expect!(km_error_code.is_err(), "Shouldn't be able to call SetBootParams a second time");
 
         // Checking that sending the message a second time fails
         session.send(&configure_bootpatchlevel_req);
-        let response: Result<KMMessage, _> = session.recv(buf);
+        let km_error_code = get_response_status(&session);
         expect!(
-            response.is_err(),
+            km_error_code.is_err(),
             "Shouldn't be able to call ConfigureBootPatchlevel a second time"
         );
     }
@@ -640,20 +652,16 @@ mod tests {
 
         // Sending ConfigureBootPatchlevelRequest
         session.send(&req);
-        let buf = &mut [0; KEYMINT_MAX_BUFFER_LENGTH as usize];
-        let response: Result<KMMessage, _> = session.recv(buf);
-        expect!(response.is_ok(), "Should be able to call ConfigureBootPatchlevel");
+        let km_error_code = get_response_status(&session);
+        expect!(km_error_code.is_ok(), "Should be able to call ConfigureBootPatchlevel");
 
         // Checking that sending the message a second time fails
         session.send(&req);
-        let response: Result<KMMessage, _> = session.recv(buf);
+        let km_error_code = get_response_status(&session);
         expect!(
-            response.is_err(),
+            km_error_code.is_err(),
             "Shouldn't be able to call ConfigureBootPatchlevel a second time"
         );
-
-        // Last message will kill our session, recreate it
-        let session = Handle::connect(port.as_c_str()).unwrap();
 
         // Creating a SetBootParams message
         let os_version = 1;
@@ -675,14 +683,13 @@ mod tests {
 
         // Sending SetBootParamsRequest
         session.send(&req);
-        let buf = &mut [0; KEYMINT_MAX_BUFFER_LENGTH as usize];
-        let response: Result<KMMessage, _> = session.recv(buf);
-        expect!(response.is_ok(), "Should be able to call SetBootParams");
+        let km_error_code = get_response_status(&session);
+        expect!(km_error_code.is_ok(), "Should be able to call SetBootParams");
 
         // Checking that sending the message a second time fails
         session.send(&req);
-        let response: Result<KMMessage, _> = session.recv(buf);
-        expect!(response.is_err(), "Shouldn't be able to call SetBootParams a second time");
+        let km_error_code = get_response_status(&session);
+        expect!(km_error_code.is_err(), "Shouldn't be able to call SetBootParams a second time");
     }
 
     //#[test]
@@ -710,17 +717,13 @@ mod tests {
 
         // Sending SetBootParamsRequest
         session.send(&req);
-        let buf = &mut [0; KEYMINT_MAX_BUFFER_LENGTH as usize];
-        let response: Result<KMMessage, _> = session.recv(buf);
-        expect!(response.is_ok(), "Should be able to call SetBootParams");
+        let km_error_code = get_response_status(&session);
+        expect!(km_error_code.is_ok(), "Should be able to call SetBootParams");
 
         // Checking that sending the message a second time fails
         session.send(&req);
-        let response: Result<KMMessage, _> = session.recv(buf);
-        expect!(response.is_err(), "Shouldn't be able to call SetBootParams a second time");
-
-        // Last message will kill our session, recreate it
-        let session = Handle::connect(port.as_c_str()).unwrap();
+        let km_error_code = get_response_status(&session);
+        expect!(km_error_code.is_err(), "Shouldn't be able to call SetBootParams a second time");
 
         // Creating a ConfigureBootPatchlevelRequest message
         let boot_patchlevel = 0x20201010;
@@ -730,15 +733,14 @@ mod tests {
 
         // Sending ConfigureBootPatchlevelRequest
         session.send(&req);
-        let buf = &mut [0; KEYMINT_MAX_BUFFER_LENGTH as usize];
-        let response: Result<KMMessage, _> = session.recv(buf);
-        expect!(response.is_ok(), "Should be able to call ConfigureBootPatchlevel");
+        let km_error_code = get_response_status(&session);
+        expect!(km_error_code.is_ok(), "Should be able to call ConfigureBootPatchlevel");
 
         // Checking that sending the message a second time fails
         session.send(&req);
-        let response: Result<KMMessage, _> = session.recv(buf);
+        let km_error_code = get_response_status(&session);
         expect!(
-            response.is_err(),
+            km_error_code.is_err(),
             "Shouldn't be able to call ConfigureBootPatchlevel a second time"
         );
     }
@@ -756,9 +758,8 @@ mod tests {
 
         // Sending ConfigureBootPatchlevelRequest
         session.send(&configure_bootpatchlevel_req);
-        let buf = &mut [0; KEYMINT_MAX_BUFFER_LENGTH as usize];
-        let response: Result<KMMessage, _> = session.recv(buf);
-        expect!(response.is_ok(), "Should be able to call ConfigureBootPatchlevel");
+        let km_error_code = get_response_status(&session);
+        expect!(km_error_code.is_ok(), "Should be able to call ConfigureBootPatchlevel");
 
         // Creating a SetBootParams message
         let os_version = 1;
@@ -780,23 +781,19 @@ mod tests {
 
         // Sending SetBootParamsRequest
         session.send(&set_boot_param_req);
-        let buf = &mut [0; KEYMINT_MAX_BUFFER_LENGTH as usize];
-        let response: Result<KMMessage, _> = session.recv(buf);
-        expect!(response.is_ok(), "Should be able to call SetBootParams");
+        let km_error_code = get_response_status(&session);
+        expect!(km_error_code.is_ok(), "Should be able to call SetBootParams");
 
         // Checking that sending the message a second time fails
         session.send(&set_boot_param_req);
-        let response: Result<KMMessage, _> = session.recv(buf);
-        expect!(response.is_err(), "Shouldn't be able to call SetBootParams a second time");
-
-        // Last message will kill our session, recreate it
-        let session = Handle::connect(port.as_c_str()).unwrap();
+        let km_error_code = get_response_status(&session);
+        expect!(km_error_code.is_err(), "Shouldn't be able to call SetBootParams a second time");
 
         // Checking that sending the message a second time fails
         session.send(&configure_bootpatchlevel_req);
-        let response: Result<KMMessage, _> = session.recv(buf);
+        let km_error_code = get_response_status(&session);
         expect!(
-            response.is_err(),
+            km_error_code.is_err(),
             "Shouldn't be able to call ConfigureBootPatchlevel a second time"
         );
     }
