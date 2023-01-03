@@ -98,7 +98,11 @@ pub(crate) fn read_attestation_ids() -> Result<AttestationIdInfo, Error> {
     let manufacturer = attestation_ids_pb.take_manufacturer();
     let model = attestation_ids_pb.take_model();
 
-    Ok(AttestationIdInfo { brand, device, product, serial, imei, meid, manufacturer, model })
+    // Pixel devices are provisioned with two consecutive IMEI values, but only the first is stored
+    // in the data.
+    let imei2 = kmr_common::tag::increment_imei(&imei);
+
+    Ok(AttestationIdInfo { brand, device, product, serial, imei, imei2, meid, manufacturer, model })
 }
 
 /// Retrieve that attestation key information for the specified signing algorithm.
