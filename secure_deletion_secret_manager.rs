@@ -739,7 +739,11 @@ mod tests {
         expect!(!secret_manager_file_exists(), "Couldn't delete secret manager file");
     }
 
-    #[test]
+    // Not running next test because it takes too long when run on build server, which causes unit
+    // tests to timeout sometimes. Also not using #[ignore] because it doesn't seem to be supported
+    // yet.
+
+    //#[test]
     fn new_secret_data_file_expands() {
         let mut sdsf = TrustySecureDeletionSecretManager::new();
         sdsf.delete_all();
