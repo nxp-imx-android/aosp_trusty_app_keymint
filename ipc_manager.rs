@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 //! Trusty handler for IPC connections. It handles both secure and non-secure world ports.
+use crate::secure_storage_manager;
 use alloc::{rc::Rc, vec::Vec};
 use core::{cell::RefCell, mem};
 use kmr_common::{
@@ -21,13 +22,14 @@ use kmr_common::{
     km_err,
     wire::legacy::{
         self, ConfigureBootPatchlevelResponse, GetAuthTokenKeyResponse, GetVersion2Response,
-        GetVersionResponse, SetBootParamsResponse, TrustyMessageId, TrustyPerformOpReq,
-        TrustyPerformOpRsp, TrustyPerformSecureOpReq, TrustyPerformSecureOpRsp,
+        GetVersionResponse, SetAttestationIdsResponse, SetAttestationKeyResponse,
+        SetBootParamsResponse, TrustyMessageId, TrustyPerformOpReq, TrustyPerformOpRsp,
+        TrustyPerformSecureOpReq, TrustyPerformSecureOpRsp,
     },
     Error,
 };
-use kmr_ta::{self, split_rsp, HardwareInfo, KeyMintTa, RpcInfo};
-use kmr_wire::keymint::BootInfo;
+use kmr_ta::{self, device::SigningAlgorithm, split_rsp, HardwareInfo, KeyMintTa, RpcInfo};
+use kmr_wire::keymint::{Algorithm, BootInfo};
 use log::{debug, error, info};
 use std::ops::Deref;
 use system_state::{ProvisioningAllowedFlagValues, SystemState, SystemStateFlag};
@@ -75,6 +77,20 @@ impl<'s> Serialize<'s> for KMMessage {
         serializer: &mut S,
     ) -> Result<S::Ok, S::Error> {
         serializer.serialize_bytes(&self.0.as_slice())
+    }
+}
+
+fn keymaster_algorithm_to_signing_algorithm(
+    algorithm: Algorithm,
+) -> Result<SigningAlgorithm, Error> {
+    match algorithm {
+        Algorithm::Rsa => Ok(SigningAlgorithm::Rsa),
+        Algorithm::Ec => Ok(SigningAlgorithm::Ec),
+        _ => Err(km_err!(
+            Unimplemented,
+            "only supported algorithms are RSA and EC. Got {}",
+            algorithm as u32
+        )),
     }
 }
 
@@ -291,6 +307,26 @@ impl<'a> KMLegacyService<'a> {
 
                 Ok(TrustyPerformOpRsp::ConfigureBootPatchlevel(ConfigureBootPatchlevelResponse {}))
             }
+            TrustyPerformOpReq::SetAttestationKey(req) => {
+                let algorithm = keymaster_algorithm_to_signing_algorithm(req.algorithm)?;
+                secure_storage_manager::provision_attestation_key_file(algorithm, &req.key_data)?;
+                Ok(TrustyPerformOpRsp::SetAttestationKey(SetAttestationKeyResponse {}))
+            }
+            TrustyPerformOpReq::SetAttestationIds(req) => {
+                secure_storage_manager::provision_attestation_id_file(
+                    &req.brand,
+                    &req.product,
+                    &req.device,
+                    &req.serial,
+                    &req.imei,
+                    &req.meid,
+                    &req.manufacturer,
+                    &req.model,
+                )?;
+                Ok(TrustyPerformOpRsp::SetAttestationIds(SetAttestationIdsResponse {}))
+            }
+            // TODO: Check if we need to support other provisioning messages:
+            // (AppendAttestationCertChain, ClearAttestationCertChain, SetWrappedAttestationKey)
             _ => Err(km_err!(Unimplemented, "received command {:?} not supported", cmd_code)),
         }
     }
@@ -523,6 +559,8 @@ mod tests {
     const CONFIGURE_BOOT_PATCHLEVEL_CMD: u32 =
         legacy::TrustyKeymasterOperation::ConfigureBootPatchlevel as u32;
     const SET_BOOT_PARAMS_CMD: u32 = legacy::TrustyKeymasterOperation::SetBootParams as u32;
+    const SET_ATTESTATION_IDS_CMD: u32 = legacy::TrustyKeymasterOperation::SetAttestationIds as u32;
+    const SET_ATTESTATION_KEY_CMD: u32 = legacy::TrustyKeymasterOperation::SetAttestationKey as u32;
 
     #[test]
     fn connection_test() {
@@ -580,6 +618,90 @@ mod tests {
         verified_boot_key.serialize_into(&mut req)?;
         verified_boot_hash.serialize_into(&mut req)?;
         Ok(req)
+    }
+
+    fn get_set_attestation_ids_message(
+        brand: &Vec<u8>,
+        product: &Vec<u8>,
+        device: &Vec<u8>,
+        serial: &Vec<u8>,
+        imei: &Vec<u8>,
+        meid: &Vec<u8>,
+        manufacturer: &Vec<u8>,
+        model: &Vec<u8>,
+    ) -> Result<Vec<u8>, legacy::Error> {
+        let mut req = get_message_request(SET_ATTESTATION_IDS_CMD);
+        brand.serialize_into(&mut req)?;
+        product.serialize_into(&mut req)?;
+        device.serialize_into(&mut req)?;
+        serial.serialize_into(&mut req)?;
+        imei.serialize_into(&mut req)?;
+        meid.serialize_into(&mut req)?;
+        manufacturer.serialize_into(&mut req)?;
+        model.serialize_into(&mut req)?;
+        Ok(req)
+    }
+
+    fn get_set_attestation_key_message(
+        algorithm: Algorithm,
+        content: &[u8],
+    ) -> Result<Vec<u8>, legacy::Error> {
+        let mut req = get_message_request(SET_ATTESTATION_KEY_CMD);
+        (algorithm as u32).serialize_into(&mut req)?;
+        (content.len() as u32).serialize_into(&mut req)?;
+        req.extend_from_slice(content);
+        Ok(req)
+    }
+
+    #[test]
+    fn set_attestation_keys_certs() {
+        let port = CString::try_new(KM_NS_LEGACY_TIPC_SRV_PORT).unwrap();
+        let session = Handle::connect(port.as_c_str()).unwrap();
+
+        let req = get_set_attestation_key_message(Algorithm::Ec, &[0; 1024])
+            .expect("couldn't construct SetAttestatonKey request");
+        let set_attestation_key_req = KMMessage(req);
+        // Sending `SetAttestationKey` request and processing response
+        session.send(&set_attestation_key_req);
+        let buf = &mut [0; KEYMINT_MAX_BUFFER_LENGTH as usize];
+        let response: KMMessage = session.recv(buf).expect("Didn't get response");
+        let km_error_code = check_response_status(&response);
+        expect!(km_error_code.is_ok(), "Should be able to call SetAttestatonKeys");
+    }
+
+    #[test]
+    fn set_attestation_ids() {
+        let port = CString::try_new(KM_NS_LEGACY_TIPC_SRV_PORT).unwrap();
+        let session = Handle::connect(port.as_c_str()).unwrap();
+
+        // Creating a SetAttestationIds message
+        let brand = b"no brand".to_vec();
+        let device = b"a new device".to_vec();
+        let product = b"p1".to_vec();
+        let serial = vec![b'5'; 64];
+        let imei = b"7654321".to_vec();
+        let meid = b"1234567".to_vec();
+        let manufacturer = b"a manufacturer".to_vec();
+        let model = b"the new one".to_vec();
+        let req = get_set_attestation_ids_message(
+            &brand,
+            &device,
+            &product,
+            &serial,
+            &imei,
+            &meid,
+            &manufacturer,
+            &model,
+        )
+        .expect("couldn't construct SetAttestatonIds request");
+        let set_attestation_ids_req = KMMessage(req);
+
+        // Sending SetAttestationIds
+        session.send(&set_attestation_ids_req);
+        let buf = &mut [0; KEYMINT_MAX_BUFFER_LENGTH as usize];
+        let response: KMMessage = session.recv(buf).expect("Didn't get response");
+        let km_error_code = check_response_status(&response);
+        expect!(km_error_code.is_ok(), "Should be able to call SetAttestationIds");
     }
 
     #[test]
