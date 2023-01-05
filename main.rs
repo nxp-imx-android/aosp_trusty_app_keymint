@@ -13,8 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+//! Main entrypoint for KeyMint/Rust trusted application (TA) on Trusty.
+
 use keymint::{
-    AttestationIds, CertSignInfo, SharedSddManager, TrustyAes, TrustyKeys, TrustyMonotonicCLock,
+    AttestationIds, CertSignInfo, SharedSddManager, TrustyAes, TrustyKeys, TrustyMonotonicClock,
     TrustyRpc, TrustySecureDeletionSecretManager, TrustyStorageKeyWrapper,
 };
 use kmr_common::crypto;
@@ -46,7 +49,7 @@ fn main() {
     };
 
     let mut rng = BoringRng::default();
-    let clock = TrustyMonotonicCLock;
+    let clock = TrustyMonotonicClock;
     let aes = TrustyAes::default();
     let imp = crypto::Implementation {
         rng: &mut rng,

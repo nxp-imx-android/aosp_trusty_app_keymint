@@ -16,11 +16,7 @@
 
 //! Module that implements the [`SecureDeletionSecretManager`] trait.
 use alloc::rc::Rc;
-use core::{
-    cell::RefCell,
-    cmp,
-    ops::{Deref, DerefMut},
-};
+use core::{cell::RefCell, cmp, ops::DerefMut};
 use kmr_common::{
     crypto,
     keyblob::{SecureDeletionData, SecureDeletionSecretManager, SecureDeletionSlot, SlotPurpose},
@@ -84,10 +80,11 @@ const _: () =
     assert!((FACTORY_RESET_SECRET_SIZE % SECRET_SIZE) == 0, "Broke find_empty_slot assumption");
 
 fn get_secure_deletion_secret_file_session(wait_on_port: bool) -> Result<Session, Error> {
-    let mut session = Session::new(Port::TamperProof, wait_on_port).map_err(|_| {
+    let session = Session::new(Port::TamperProof, wait_on_port).map_err(|e| {
         km_err!(
             SecureHwCommunicationFailed,
-            "failed to connect to secure storage port for opening secure deletion secret file"
+            "failed to connect to secure storage port for opening secure deletion file: {:?}",
+            e
         )
     })?;
     Ok(session)
@@ -100,7 +97,11 @@ fn delete_secure_deletion_secret_file() -> Result<(), Error> {
     match session.remove(SECURE_DELETION_SECRET_FILENAME) {
         Ok(_) => Ok(()),
         Err(storage_session::Error::Code(trusty_sys::Error::NotFound)) => Ok(()),
-        Err(_) => Err(km_err!(SecureHwCommunicationFailed, "Couldn't delete secure secrets file")),
+        Err(e) => Err(km_err!(
+            SecureHwCommunicationFailed,
+            "couldn't delete secure secrets file: {:?}",
+            e
+        )),
     }
 }
 
@@ -118,10 +119,15 @@ struct SecureDeletionSecretFile<'a> {
 impl<'a> SecureDeletionSecretFile<'a> {
     fn open_or_create(session: &'a mut Session) -> Result<SecureDeletionSecretFile<'a>, Error> {
         let mut transaction = session.begin_transaction();
-        let mut file =
-            transaction.open_file(SECURE_DELETION_SECRET_FILENAME, OpenMode::Create).map_err(
-                |_| km_err!(SecureHwCommunicationFailed, "failed open secure deletion secret file"),
-            )?;
+        let file = transaction
+            .open_file(SECURE_DELETION_SECRET_FILENAME, OpenMode::Create)
+            .map_err(|e| {
+                km_err!(
+                    SecureHwCommunicationFailed,
+                    "failed to open secure deletion secret file: {:?}",
+                    e
+                )
+            })?;
         Ok(SecureDeletionSecretFile { transaction, file })
     }
 
@@ -131,12 +137,13 @@ impl<'a> SecureDeletionSecretFile<'a> {
         buffer: &'buf mut [u8],
     ) -> Result<&'buf [u8], Error> {
         let req_len = buffer.len();
-        let data = self.transaction.read_at(&self.file, start, buffer).map_err(|_| {
+        let data = self.transaction.read_at(&self.file, start, buffer).map_err(|e| {
             km_err!(
                 SecureHwCommunicationFailed,
-                "failed to read secure deletion secret file at offset {} with len {}",
+                "failed to read secure deletion secret file at offset {} with len {}: {:?}",
                 start,
-                req_len
+                req_len,
+                e
             )
         })?;
         if data.len() != req_len {
@@ -195,18 +202,23 @@ impl<'a> SecureDeletionSecretFile<'a> {
     }
 
     fn write_block(&mut self, start: usize, buffer: &[u8]) -> Result<(), Error> {
-        self.transaction.write_at(&mut self.file, start, buffer).map_err(|_| {
+        self.transaction.write_at(&mut self.file, start, buffer).map_err(|e| {
             km_err!(
                 SecureHwCommunicationFailed,
-                "failed to write to deletion secret file at pos {}",
-                start
+                "failed to write to deletion secret file at pos {}: {:?}",
+                start,
+                e
             )
         })
     }
 
     fn get_file_size(&mut self) -> Result<usize, Error> {
-        self.transaction.get_size(&self.file).map_err(|_| {
-            km_err!(SecureHwCommunicationFailed, "couldn't get secure deletion secret file size")
+        self.transaction.get_size(&self.file).map_err(|e| {
+            km_err!(
+                SecureHwCommunicationFailed,
+                "couldn't get secure deletion secret file size: {:?}",
+                e
+            )
         })
     }
 
@@ -218,11 +230,12 @@ impl<'a> SecureDeletionSecretFile<'a> {
     }
 
     fn resize(&mut self, new_size: usize) -> Result<(), Error> {
-        self.transaction.set_size(&mut self.file, new_size).map_err(|_| {
+        self.transaction.set_size(&mut self.file, new_size).map_err(|e| {
             km_err!(
                 SecureHwCommunicationFailed,
-                "failed to resize secure deletion secret file to {}",
-                new_size
+                "failed to resize secure deletion secret file to {}: {:?}",
+                new_size,
+                e
             )
         })?;
         Ok(())
@@ -243,11 +256,12 @@ impl<'a> SecureDeletionSecretFile<'a> {
         Ok(())
     }
 
-    fn finish_transaction(mut self) -> Result<(), Error> {
-        self.transaction.commit().map_err(|_| {
+    fn finish_transaction(self) -> Result<(), Error> {
+        self.transaction.commit().map_err(|e| {
             km_err!(
                 SecureHwCommunicationFailed,
-                "failed to commit transaction on secure deletion secret file"
+                "failed to commit transaction on secure deletion secret file: {:?}",
+                e
             )
         })
     }
@@ -292,8 +306,12 @@ impl TrustySecureDeletionSecretManager {
             "couldn't get a session to open the secure deletion secret file"
         ))?;
         let mut sdsf_file = SecureDeletionSecretFile::open_or_create(session)?;
-        let file_size = sdsf_file.get_file_size().map_err(|_| {
-            km_err!(SecureHwCommunicationFailed, "couldn't get secure deletion secret file size")
+        let file_size = sdsf_file.get_file_size().map_err(|e| {
+            km_err!(
+                SecureHwCommunicationFailed,
+                "couldn't get secure deletion secret file size: {:?}",
+                e
+            )
         })?;
 
         // Found an empty file
@@ -332,7 +350,7 @@ impl TrustySecureDeletionSecretManager {
         wait_for_port: bool,
     ) -> Result<SecureDeletionData, Error> {
         let mut session = get_secure_deletion_secret_file_session(wait_for_port).ok();
-        let mut secret_file_data = self.get_factory_reset_secret_impl(session.as_mut())?;
+        let secret_file_data = self.get_factory_reset_secret_impl(session.as_mut())?;
         match secret_file_data {
             RetrieveSecureDeletionSecretFileData::CachedDataFound(data) => Ok(data),
             RetrieveSecureDeletionSecretFileData::DataFoundOnFile(data) => Ok(data),
@@ -364,7 +382,7 @@ impl TrustySecureDeletionSecretManager {
         if buffer_size != SECRET_SIZE {
             return Err(km_err!(
                 InsufficientBufferSpace,
-                "needed {} bytes to read slot. Received {}",
+                "needed {} bytes to read slot, received {}",
                 SECRET_SIZE,
                 buffer.len()
             ));
@@ -374,21 +392,21 @@ impl TrustySecureDeletionSecretManager {
         let mut session = match get_secure_deletion_secret_file_session(true) {
             Ok(session) => session,
             Err(e) => {
-                error!("Failed to open session to get secure deletion data");
+                error!("Failed to open session to get secure deletion data: {:?}", e);
                 return Err(e);
             }
         };
         let mut sdsf_file = match SecureDeletionSecretFile::open_or_create(&mut session) {
             Ok(sdsf_file) => sdsf_file,
             Err(e) => {
-                error!("Failed to open file to get secure deletion data");
+                error!("Failed to open file to get secure deletion data: {:?}", e);
                 return Err(e);
             }
         };
         let file_size = match sdsf_file.get_file_size() {
             Ok(file_size) => file_size,
             Err(e) => {
-                error!("Failed to read secure deletion data file size");
+                error!("Failed to read secure deletion data file size: {:?}", e);
                 return Err(e);
             }
         };
@@ -413,7 +431,7 @@ impl TrustySecureDeletionSecretManager {
                 }
             }
             Err(e) => {
-                error!("Failed to read secret from slot {}", requested_slot);
+                error!("Failed to read secret from slot {}: {:?}", requested_slot, e);
                 Err(e)
             }
         }
@@ -438,7 +456,7 @@ impl SecureDeletionSecretManager for TrustySecureDeletionSecretManager {
 
     fn get_factory_reset_secret(&self) -> Result<SecureDeletionData, Error> {
         let mut session = get_secure_deletion_secret_file_session(true).ok();
-        let mut secret_file_data = self.get_factory_reset_secret_impl(session.as_mut())?;
+        let secret_file_data = self.get_factory_reset_secret_impl(session.as_mut())?;
         match secret_file_data {
             RetrieveSecureDeletionSecretFileData::CachedDataFound(data) => Ok(data),
             RetrieveSecureDeletionSecretFileData::DataFoundOnFile(data) => Ok(data),
@@ -453,14 +471,14 @@ impl SecureDeletionSecretManager for TrustySecureDeletionSecretManager {
         rng: &mut dyn crypto::Rng,
         slot_purpose: SlotPurpose,
     ) -> Result<(SecureDeletionSlot, SecureDeletionData), Error> {
-        let is_upgrade = (slot_purpose == SlotPurpose::KeyUpgrade);
+        let is_upgrade = slot_purpose == SlotPurpose::KeyUpgrade;
         // We are not waiting on the connection if the TA port is not available. This follows the
         // behavior of the original code.
         let mut secure_deletion_data =
             match self.get_or_create_factory_reset_secret_impl(rng, false) {
                 Ok(data) => data,
                 Err(e) => {
-                    info!("Unable to get factory reset secret");
+                    info!("Unable to get factory reset secret: {:?}", e);
                     return Err(e);
                 }
             };
@@ -471,10 +489,10 @@ impl SecureDeletionSecretManager for TrustySecureDeletionSecretManager {
         // which they use a blocking call if this point is reached.
         let mut session = get_secure_deletion_secret_file_session(true)?;
         let mut sdsf_file = SecureDeletionSecretFile::open_or_create(&mut session)?;
-        let mut empty_slot = match sdsf_file.find_empty_slot(is_upgrade) {
+        let empty_slot = match sdsf_file.find_empty_slot(is_upgrade) {
             Ok(slot) => slot,
             Err(e) => {
-                error!("Error while searching for key slot");
+                error!("Error while searching for key slot: {:?}", e);
                 return Err(e);
             }
         };
@@ -485,7 +503,7 @@ impl SecureDeletionSecretManager for TrustySecureDeletionSecretManager {
             None => {
                 // No empty slot found, try to increase file size
                 let max_file_size = SecureDeletionSecretFile::get_max_file_size(is_upgrade);
-                if (original_file_size >= max_file_size) {
+                if original_file_size >= max_file_size {
                     error!(
                         "Didn't find a slot and can't grow the file larger than {}",
                         original_file_size
@@ -499,12 +517,12 @@ impl SecureDeletionSecretManager for TrustySecureDeletionSecretManager {
                 let new_size = original_file_size + BLOCK_SIZE;
                 debug!("Attempting to resize file from {} to {}", original_file_size, new_size);
                 if let Err(e) = sdsf_file.resize(new_size) {
-                    error!("Failed to grow file to make room for a key slot");
+                    error!("Failed to grow file to make room for a key slot: {:?}", e);
                     return Err(e);
                 }
                 debug!("Resized file to {}", new_size);
                 if let Err(e) = sdsf_file.zero_entries(original_file_size, new_size) {
-                    error!("Error zeroing space in extended file");
+                    error!("Error zeroing space in extended file: {:?}", e);
                     return Err(e);
                 }
                 let slot_number = original_file_size / SECRET_SIZE;
@@ -516,13 +534,13 @@ impl SecureDeletionSecretManager for TrustySecureDeletionSecretManager {
         if let Err(e) = sdsf_file
             .write_block(empty_slot * SECRET_SIZE, &secure_deletion_data.secure_deletion_secret)
         {
-            error!("Failed to write new deletion secret to key slot {}", empty_slot);
+            error!("Failed to write new deletion secret to key slot {}: {:?}", empty_slot, e);
             return Err(e);
         }
         if let Err(e) = sdsf_file.finish_transaction() {
             error!(
-                "Failed to commit transaction writing new deletion secret to slot {}",
-                empty_slot
+                "Failed to commit transaction writing new deletion secret to slot {}: {:?}",
+                empty_slot, e
             );
             return Err(e);
         }
@@ -562,7 +580,7 @@ impl SecureDeletionSecretManager for TrustySecureDeletionSecretManager {
                     break Ok(secure_deletion_data);
                 }
                 Err(e) => {
-                    if (current_try >= MAX_TRIES) {
+                    if current_try >= MAX_TRIES {
                         break Err(e);
                     }
                 }
@@ -584,7 +602,7 @@ impl SecureDeletionSecretManager for TrustySecureDeletionSecretManager {
         }
         let key_slot_start = requested_slot * SECRET_SIZE;
         let key_slot_end = key_slot_start + SECRET_SIZE;
-        if (key_slot_start < FACTORY_FIRST_SECURE_DELETION_SECRET_POS) {
+        if key_slot_start < FACTORY_FIRST_SECURE_DELETION_SECRET_POS {
             return Err(km_err!(
                 InvalidArgument,
                 "attempted to delete invalid key slot {}",
@@ -595,16 +613,16 @@ impl SecureDeletionSecretManager for TrustySecureDeletionSecretManager {
         //       C++ code doesn't stop retrying, which is the current behavior here.
         loop {
             let mut session = match get_secure_deletion_secret_file_session(true) {
-                Ok(mut session) => session,
-                Err(_) => {
-                    error!("Failed to open session to retrieve secure deletion data");
+                Ok(session) => session,
+                Err(e) => {
+                    error!("Failed to open session to retrieve secure deletion data: {:?}", e);
                     continue;
                 }
             };
             let mut sdsf_file = match SecureDeletionSecretFile::open_or_create(&mut session) {
-                Ok(mut sdsf_file) => sdsf_file,
-                Err(_) => {
-                    error!("Failed to open file to retrieve secure deletion data");
+                Ok(sdsf_file) => sdsf_file,
+                Err(e) => {
+                    error!("Failed to open file to retrieve secure deletion data: {:?}", e);
                     continue;
                 }
             };
@@ -626,8 +644,11 @@ impl SecureDeletionSecretManager for TrustySecureDeletionSecretManager {
                 "Deleted secure key slot {}, zeroing {} to {}",
                 requested_slot, key_slot_start, key_slot_end
             );
-            if let Err(_) = sdsf_file.finish_transaction() {
-                error!("Failed to commit transaction deleting key at slot {}", requested_slot);
+            if let Err(e) = sdsf_file.finish_transaction() {
+                error!(
+                    "Failed to commit transaction deleting key at slot {}: {:?}",
+                    requested_slot, e
+                );
                 continue;
             }
             debug!("Committed deletion");
@@ -719,7 +740,7 @@ mod tests {
         let secret1 =
             sdsf.get_or_create_factory_reset_secret(&mut rng).expect("Couldn't create secret");
         let num_initial_slots = BLOCK_SIZE / SECRET_SIZE;
-        for slot_num in (2..num_initial_slots) {
+        for slot_num in 2..num_initial_slots {
             let secret =
                 sdsf.get_secret(SecureDeletionSlot(slot_num as u32)).expect("Couldn't read slot");
             expect_eq!(
@@ -744,16 +765,16 @@ mod tests {
     // yet.
 
     //#[test]
+    #[allow(dead_code)]
     fn new_secret_data_file_expands() {
         let mut sdsf = TrustySecureDeletionSecretManager::new();
         sdsf.delete_all();
         expect!(!secret_manager_file_exists(), "Couldn't delete secret manager file");
         let mut rng = BoringRng::default();
-        let secret1 =
+        let _secret1 =
             sdsf.get_or_create_factory_reset_secret(&mut rng).expect("Couldn't create secret");
-        let num_slots_per_block = BLOCK_SIZE / SECRET_SIZE;
         let max_num_slots = MAX_SECRET_FILE_SIZE / SECRET_SIZE;
-        for slot_num in (2..max_num_slots) {
+        for slot_num in 2..max_num_slots {
             let (deletion_slot, deletion_data) = sdsf
                 .new_secret(&mut rng, SlotPurpose::KeyGeneration)
                 .expect("Couldn't create secret");
@@ -785,9 +806,9 @@ mod tests {
         }
         let size_failure = sdsf.new_secret(&mut rng, SlotPurpose::KeyGeneration);
         expect!(size_failure.is_err(), "Shouldn't be able to increase secret file size any larger");
-        //Testing upgrade flow
+        // Testing upgrade flow
         let max_num_upgrade_slots = (MAX_SECRET_FILE_SIZE_FOR_UPGRADES) / SECRET_SIZE;
-        for slot_num in (max_num_slots..max_num_upgrade_slots) {
+        for slot_num in max_num_slots..max_num_upgrade_slots {
             let (deletion_slot, deletion_data) = sdsf
                 .new_secret(&mut rng, SlotPurpose::KeyUpgrade)
                 .expect("Couldn't create secret for upgrade flow");
@@ -816,7 +837,7 @@ mod tests {
         }
         let size_failure = sdsf.new_secret(&mut rng, SlotPurpose::KeyUpgrade);
         expect!(size_failure.is_err(), "Shouldn't be able to increase secret file size any larger");
-        //Testing deletion
+        // Testing deletion
         for slot_num in (2..max_num_upgrade_slots).rev() {
             let slot = SecureDeletionSlot(slot_num as u32);
             sdsf.delete_secret(slot).expect("Couldn't delete secret");
@@ -853,7 +874,7 @@ mod tests {
         let reset_secret = sdsf
             .get_or_create_factory_reset_secret(&mut rng)
             .expect("Couldn't create factory reset secret");
-        let (deletion_slot_1, deletion_data_1) =
+        let (deletion_slot_1, _deletion_data_1) =
             sdsf.new_secret(&mut rng, SlotPurpose::KeyGeneration).expect("Couldn't create secret");
         sdsf.delete_secret(deletion_slot_1).expect("Couldn't delete secret");
         // Delete cached data

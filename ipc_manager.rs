@@ -18,8 +18,7 @@ use crate::secure_storage_manager;
 use alloc::{rc::Rc, vec::Vec};
 use core::{cell::RefCell, mem};
 use kmr_common::{
-    crypto::{self, hmac},
-    km_err,
+    crypto, km_err,
     wire::legacy::{
         self, ConfigureBootPatchlevelResponse, GetAuthTokenKeyResponse, GetVersion2Response,
         GetVersionResponse, SetAttestationIdsResponse, SetAttestationKeyResponse,
@@ -31,7 +30,6 @@ use kmr_common::{
 use kmr_ta::{self, device::SigningAlgorithm, split_rsp, HardwareInfo, KeyMintTa, RpcInfo};
 use kmr_wire::keymint::{Algorithm, BootInfo};
 use log::{debug, error, info};
-use std::ops::Deref;
 use system_state::{ProvisioningAllowedFlagValues, SystemState, SystemStateFlag};
 use tipc::{
     service_dispatcher, Deserialize, Handle, Manager, PortCfg, Serialize, Serializer, Service,
@@ -50,10 +48,12 @@ const KM_NS_LEGACY_TIPC_SRV_PORT: &str = "com.android.trusty.keymaster";
 const KEYMINT_MAX_BUFFER_LENGTH: usize = 4096;
 const KEYMINT_MAX_MESSAGE_CONTENT_SIZE: usize = 4000;
 
+/// TIPC connection context information.
 struct Context {
     _uuid: Uuid,
 }
 
+/// Newtype wrapper for opaque messages.
 struct KMMessage(Vec<u8>);
 
 impl Deserialize for KMMessage {
@@ -74,6 +74,7 @@ impl<'s> Serialize<'s> for KMMessage {
     }
 }
 
+/// Convert KeyMint [`Algorithm`] to [`SigningAlgorithm`].
 fn keymaster_algorithm_to_signing_algorithm(
     algorithm: Algorithm,
 ) -> Result<SigningAlgorithm, Error> {
@@ -88,15 +89,19 @@ fn keymaster_algorithm_to_signing_algorithm(
     }
 }
 
+/// TIPC service implementation for communication with the HAL service in Android.
 struct KMService<'a> {
     km_ta: Rc<RefCell<KeyMintTa<'a>>>,
 }
 
 impl<'a> KMService<'a> {
+    /// Create a service implementation.
     fn new(km_ta: Rc<RefCell<KeyMintTa<'a>>>) -> Self {
         KMService { km_ta }
     }
 
+    /// Process an incoming request message, returning the response as a collection of fragments
+    /// that are each small enough to send over the channel.
     fn handle_message(&self, req_data: &[u8]) -> Result<Vec<Vec<u8>>, Error> {
         let resp = self.km_ta.borrow_mut().process(req_data);
         split_rsp(resp.as_slice(), KEYMINT_MAX_MESSAGE_CONTENT_SIZE)
@@ -144,6 +149,48 @@ impl<'a> Service for KMService<'a> {
     }
 }
 
+/// Retrieve the system state flag controlling provisioning.
+fn get_system_state_provisioning_flag() -> Result<ProvisioningAllowedFlagValues, Error> {
+    let system_state_session = SystemState::try_connect().map_err(|e| {
+        km_err!(SecureHwCommunicationFailed, "couldn't connect to system state provider: {:?}", e)
+    })?;
+    let flag =
+        system_state_session.get_flag(SystemStateFlag::ProvisioningAllowed).map_err(|e| {
+            km_err!(
+                SecureHwCommunicationFailed,
+                "couldn't get ProvisioningAllowed system state flag: {:?}",
+                e
+            )
+        })?;
+    ProvisioningAllowedFlagValues::try_from(flag).map_err(|e| {
+        km_err!(
+            SecureHwCommunicationFailed,
+            "couldn't parse ProvisioningAllowed system state flag from value {}: {:?}",
+            flag,
+            e
+        )
+    })
+}
+
+/// Indicate whether provisioning is allowed.
+fn provisioning_allowed() -> Result<bool, Error> {
+    Ok(match get_system_state_provisioning_flag()? {
+        ProvisioningAllowedFlagValues::ProvisioningAllowed => true,
+        _ => false,
+    })
+}
+
+/// Indicate whether provisioning is allowed during boot.
+fn provisioning_allowed_at_boot() -> Result<bool, Error> {
+    Ok(match get_system_state_provisioning_flag()? {
+        ProvisioningAllowedFlagValues::ProvisioningAllowed => true,
+        ProvisioningAllowedFlagValues::ProvisioningAllowedAtBoot => true,
+        _ => false,
+    })
+}
+
+/// TIPC service implementation for communication with components outside Trusty (notably the
+/// bootloader and provisioning tools), using legacy (C++) message formats.
 struct KMLegacyService<'a> {
     km_ta: Rc<RefCell<KeyMintTa<'a>>>,
     boot_info: RefCell<Option<BootInfo>>,
@@ -151,6 +198,7 @@ struct KMLegacyService<'a> {
 }
 
 impl<'a> KMLegacyService<'a> {
+    /// Create a service implementation.
     fn new(km_ta: Rc<RefCell<KeyMintTa<'a>>>) -> Self {
         KMLegacyService {
             km_ta,
@@ -159,53 +207,22 @@ impl<'a> KMLegacyService<'a> {
         }
     }
 
+    /// Indicate whether the boot process is complete.
     fn boot_done(&self) -> bool {
         self.km_ta.borrow().is_hal_info_set()
     }
 
-    fn get_system_state_provisioning_flag(&self) -> Result<ProvisioningAllowedFlagValues, Error> {
-        let system_state_session = SystemState::try_connect().map_err(|_| {
-            km_err!(SecureHwCommunicationFailed, "couldn't connect to system state provider")
-        })?;
-        let flag =
-            system_state_session.get_flag(SystemStateFlag::ProvisioningAllowed).map_err(|_| {
-                km_err!(
-                    SecureHwCommunicationFailed,
-                    "couldn't get ProvisioningAllowed system state flag"
-                )
-            })?;
-        ProvisioningAllowedFlagValues::try_from(flag).map_err(|_| {
-            km_err!(
-                SecureHwCommunicationFailed,
-                "couldn't parse ProvisioningAllowed system state flag from value {}",
-                flag
-            )
-        })
-    }
-
-    fn system_state_provisioning_allowed(&self) -> Result<bool, Error> {
-        Ok(match self.get_system_state_provisioning_flag()? {
-            ProvisioningAllowedFlagValues::ProvisioningAllowed => true,
-            _ => false,
-        })
-    }
-
-    fn system_state_provisioning_allowed_at_boot(&self) -> Result<bool, Error> {
-        Ok(match self.get_system_state_provisioning_flag()? {
-            ProvisioningAllowedFlagValues::ProvisioningAllowed => true,
-            ProvisioningAllowedFlagValues::ProvisioningAllowedAtBoot => true,
-            _ => false,
-        })
-    }
-
+    /// Indicate whether provisioning operations are allowed.
     fn can_provision(&self) -> Result<bool, Error> {
         if self.boot_done() {
-            self.system_state_provisioning_allowed()
+            provisioning_allowed()
         } else {
-            self.system_state_provisioning_allowed_at_boot()
+            provisioning_allowed_at_boot()
         }
     }
 
+    /// Set the boot information for the TA if possible (i.e. if all parts of the required
+    /// information are available).
     fn maybe_set_boot_info(&self) {
         match (self.boot_info.borrow().as_ref(), self.boot_patchlevel.borrow().as_ref()) {
             (Some(info), Some(boot_patchlevel)) => {
@@ -226,6 +243,7 @@ impl<'a> KMLegacyService<'a> {
         }
     }
 
+    /// Process an incoming request message, returning the corresponding response.
     fn handle_message(&self, req_msg: TrustyPerformOpReq) -> Result<TrustyPerformOpRsp, Error> {
         let cmd_code = req_msg.code();
         // Checking that if we received a bootloader message we are at a stage when we can process
@@ -379,11 +397,14 @@ impl<'a> Service for KMLegacyService<'a> {
     }
 }
 
+/// TIPC service implementation for secure communication with other components in Trusty
+/// (e.g. Gatekeeper, ConfirmationUI), using legacy (C++) message formats.
 struct KMSecureService<'a> {
     km_ta: Rc<RefCell<KeyMintTa<'a>>>,
 }
 
 impl<'a> KMSecureService<'a> {
+    /// Create a service implementation.
     fn new(km_ta: Rc<RefCell<KeyMintTa<'a>>>) -> Self {
         KMSecureService { km_ta }
     }
@@ -471,6 +492,7 @@ service_dispatcher! {
     }
 }
 
+/// Main loop handler for the KeyMint TA.
 pub fn handle_port_connections<'a>(
     hw_info: HardwareInfo,
     rpc_info: RpcInfo,
@@ -482,14 +504,13 @@ pub fn handle_port_connections<'a>(
     let legacy_service = KMLegacyService::new(Rc::clone(&km_ta));
     let sec_service = KMSecureService::new(km_ta);
 
-    let mut dispatcher = KMServiceDispatcher::<3>::new().map_err(|e| {
-        km_err!(UnknownError, "could not create multi-service dispatcher. Received error: {:?}", e)
-    })?;
+    let mut dispatcher = KMServiceDispatcher::<3>::new()
+        .map_err(|e| km_err!(UnknownError, "could not create multi-service dispatcher: {:?}", e))?;
     let cfg = PortCfg::new(KM_NS_TIPC_SRV_PORT)
         .map_err(|e| {
             km_err!(
                 UnknownError,
-                "could not create port config for {}. Received error: {:?}",
+                "could not create port config for {}: {:?}",
                 KM_NS_TIPC_SRV_PORT,
                 e
             )
@@ -497,30 +518,26 @@ pub fn handle_port_connections<'a>(
         .allow_ta_connect()
         .allow_ns_connect();
     dispatcher.add_service(Rc::new(ns_service), cfg).map_err(|e| {
-        km_err!(
-            UnknownError,
-            "could not add non-secure service to dispatcher. Received error: {:?}",
-            e
-        )
+        km_err!(UnknownError, "could not add non-secure service to dispatcher: {:?}", e)
     })?;
     let cfg = PortCfg::new(KM_SEC_TIPC_SRV_PORT)
         .map_err(|e| {
             km_err!(
                 UnknownError,
-                "could not create port config for {}. Received error: {:?}",
+                "could not create port config for {}: {:?}",
                 KM_SEC_TIPC_SRV_PORT,
                 e
             )
         })?
         .allow_ta_connect();
     dispatcher.add_service(Rc::new(sec_service), cfg).map_err(|e| {
-        km_err!(UnknownError, "could not add secure service to dispatcher. Received error: {:?}", e)
+        km_err!(UnknownError, "could not add secure service to dispatcher: {:?}", e)
     })?;
     let cfg = PortCfg::new(KM_NS_LEGACY_TIPC_SRV_PORT)
         .map_err(|e| {
             km_err!(
                 UnknownError,
-                "could not create port config for {}. Received error: {:?}",
+                "could not create port config for {}: {:?}",
                 KM_NS_LEGACY_TIPC_SRV_PORT,
                 e
             )
@@ -528,18 +545,19 @@ pub fn handle_port_connections<'a>(
         .allow_ta_connect()
         .allow_ns_connect();
     dispatcher.add_service(Rc::new(legacy_service), cfg).map_err(|e| {
-        km_err!(UnknownError, "could not add secure service to dispatcher. Received error: {:?}", e)
+        km_err!(UnknownError, "could not add secure service to dispatcher: {:?}", e)
     })?;
     let buffer = [0u8; 4096];
-    let manager = Manager::<_, _, 3, 4>::new_with_dispatcher(dispatcher, buffer).map_err(|e| {
-        km_err!(UnknownError, "could not create service manager. Received error: {:?}", e)
-    })?;
+    let manager = Manager::<_, _, 3, 4>::new_with_dispatcher(dispatcher, buffer)
+        .map_err(|e| km_err!(UnknownError, "could not create service manager: {:?}", e))?;
     manager
         .run_event_loop()
         .map_err(|e| km_err!(UnknownError, "service manager received error: {:?}", e))?;
     Err(km_err!(SecureHwCommunicationFailed, "KeyMint TA handler terminated unexpectedly."))
 }
 
+// TODO: remove when tests reinstated
+#[allow(dead_code)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -547,8 +565,8 @@ mod tests {
         keymint::{ErrorCode, VerifiedBootState},
         legacy::{self, InnerSerialize},
     };
-    use test::{expect, expect_eq, expect_ne};
-    use trusty_std::ffi::{CString, TryNewError};
+    use test::expect;
+    use trusty_std::ffi::CString;
 
     const CONFIGURE_BOOT_PATCHLEVEL_CMD: u32 =
         legacy::TrustyKeymasterOperation::ConfigureBootPatchlevel as u32;
@@ -563,11 +581,11 @@ mod tests {
     fn connection_test() {
         // Only doing a connection test because the auth token key is not available for unittests.
         let port1 = CString::try_new(KM_NS_TIPC_SRV_PORT).unwrap();
-        let session1 = Handle::connect(port1.as_c_str()).unwrap();
+        let _session1 = Handle::connect(port1.as_c_str()).unwrap();
         let port2 = CString::try_new(KM_SEC_TIPC_SRV_PORT).unwrap();
-        let session2 = Handle::connect(port2.as_c_str()).unwrap();
+        let _session2 = Handle::connect(port2.as_c_str()).unwrap();
         let port3 = CString::try_new(KM_NS_LEGACY_TIPC_SRV_PORT).unwrap();
-        let session3 = Handle::connect(port3.as_c_str()).unwrap();
+        let _session3 = Handle::connect(port3.as_c_str()).unwrap();
     }
 
     fn check_response_status(rsp: &KMMessage) -> Result<(), ErrorCode> {
@@ -659,7 +677,7 @@ mod tests {
             .expect("couldn't construct SetAttestatonKey request");
         let set_attestation_key_req = KMMessage(req);
         // Sending `SetAttestationKey` request and processing response
-        session.send(&set_attestation_key_req);
+        session.send(&set_attestation_key_req).unwrap();
         let buf = &mut [0; KEYMINT_MAX_BUFFER_LENGTH as usize];
         let response: KMMessage = session.recv(buf).expect("Didn't get response");
         let km_error_code = check_response_status(&response);
@@ -694,7 +712,7 @@ mod tests {
         let set_attestation_ids_req = KMMessage(req);
 
         // Sending SetAttestationIds
-        session.send(&set_attestation_ids_req);
+        session.send(&set_attestation_ids_req).unwrap();
         let buf = &mut [0; KEYMINT_MAX_BUFFER_LENGTH as usize];
         let response: KMMessage = session.recv(buf).expect("Didn't get response");
         let km_error_code = check_response_status(&response);
@@ -725,7 +743,7 @@ mod tests {
         let set_boot_param_req = KMMessage(req);
 
         // Sending SetBootParamsRequest
-        session.send(&set_boot_param_req);
+        session.send(&set_boot_param_req).unwrap();
         let km_error_code = get_response_status(&session);
         expect!(km_error_code.is_ok(), "Should be able to call SetBootParams");
 
@@ -736,17 +754,17 @@ mod tests {
         let configure_bootpatchlevel_req = KMMessage(req);
 
         // Sending ConfigureBootPatchlevelRequest
-        session.send(&configure_bootpatchlevel_req);
+        session.send(&configure_bootpatchlevel_req).unwrap();
         let km_error_code = get_response_status(&session);
         expect!(km_error_code.is_ok(), "Should be able to call ConfigureBootPatchlevel");
 
         // Checking that sending the message a second time fails
-        session.send(&set_boot_param_req);
+        session.send(&set_boot_param_req).unwrap();
         let km_error_code = get_response_status(&session);
         expect!(km_error_code.is_err(), "Shouldn't be able to call SetBootParams a second time");
 
         // Checking that sending the message a second time fails
-        session.send(&configure_bootpatchlevel_req);
+        session.send(&configure_bootpatchlevel_req).unwrap();
         let km_error_code = get_response_status(&session);
         expect!(
             km_error_code.is_err(),
@@ -759,6 +777,7 @@ mod tests {
     // it doesn't seem to be supported yet.
 
     //#[test]
+    #[allow(dead_code)]
     fn send_configure_configure_setbootparams_setbootparams() {
         let port = CString::try_new(KM_NS_LEGACY_TIPC_SRV_PORT).unwrap();
         let session = Handle::connect(port.as_c_str()).unwrap();
@@ -770,12 +789,12 @@ mod tests {
         let req = KMMessage(req);
 
         // Sending ConfigureBootPatchlevelRequest
-        session.send(&req);
+        session.send(&req).unwrap();
         let km_error_code = get_response_status(&session);
         expect!(km_error_code.is_ok(), "Should be able to call ConfigureBootPatchlevel");
 
         // Checking that sending the message a second time fails
-        session.send(&req);
+        session.send(&req).unwrap();
         let km_error_code = get_response_status(&session);
         expect!(
             km_error_code.is_err(),
@@ -801,17 +820,18 @@ mod tests {
         let req = KMMessage(req);
 
         // Sending SetBootParamsRequest
-        session.send(&req);
+        session.send(&req).unwrap();
         let km_error_code = get_response_status(&session);
         expect!(km_error_code.is_ok(), "Should be able to call SetBootParams");
 
         // Checking that sending the message a second time fails
-        session.send(&req);
+        session.send(&req).unwrap();
         let km_error_code = get_response_status(&session);
         expect!(km_error_code.is_err(), "Shouldn't be able to call SetBootParams a second time");
     }
 
     //#[test]
+    #[allow(dead_code)]
     fn send_setbootparams_setbootparams_configure_configure() {
         let port = CString::try_new(KM_NS_LEGACY_TIPC_SRV_PORT).unwrap();
         let session = Handle::connect(port.as_c_str()).unwrap();
@@ -835,12 +855,12 @@ mod tests {
         let req = KMMessage(req);
 
         // Sending SetBootParamsRequest
-        session.send(&req);
+        session.send(&req).unwrap();
         let km_error_code = get_response_status(&session);
         expect!(km_error_code.is_ok(), "Should be able to call SetBootParams");
 
         // Checking that sending the message a second time fails
-        session.send(&req);
+        session.send(&req).unwrap();
         let km_error_code = get_response_status(&session);
         expect!(km_error_code.is_err(), "Shouldn't be able to call SetBootParams a second time");
 
@@ -851,12 +871,12 @@ mod tests {
         let req = KMMessage(req);
 
         // Sending ConfigureBootPatchlevelRequest
-        session.send(&req);
+        session.send(&req).unwrap();
         let km_error_code = get_response_status(&session);
         expect!(km_error_code.is_ok(), "Should be able to call ConfigureBootPatchlevel");
 
         // Checking that sending the message a second time fails
-        session.send(&req);
+        session.send(&req).unwrap();
         let km_error_code = get_response_status(&session);
         expect!(
             km_error_code.is_err(),
@@ -865,6 +885,7 @@ mod tests {
     }
 
     //#[test]
+    #[allow(dead_code)]
     fn send_configure_setbootparams_setbootparams_configure() {
         let port = CString::try_new(KM_NS_LEGACY_TIPC_SRV_PORT).unwrap();
         let session = Handle::connect(port.as_c_str()).unwrap();
@@ -876,7 +897,7 @@ mod tests {
         let configure_bootpatchlevel_req = KMMessage(req);
 
         // Sending ConfigureBootPatchlevelRequest
-        session.send(&configure_bootpatchlevel_req);
+        session.send(&configure_bootpatchlevel_req).unwrap();
         let km_error_code = get_response_status(&session);
         expect!(km_error_code.is_ok(), "Should be able to call ConfigureBootPatchlevel");
 
@@ -899,17 +920,17 @@ mod tests {
         let set_boot_param_req = KMMessage(req);
 
         // Sending SetBootParamsRequest
-        session.send(&set_boot_param_req);
+        session.send(&set_boot_param_req).unwrap();
         let km_error_code = get_response_status(&session);
         expect!(km_error_code.is_ok(), "Should be able to call SetBootParams");
 
         // Checking that sending the message a second time fails
-        session.send(&set_boot_param_req);
+        session.send(&set_boot_param_req).unwrap();
         let km_error_code = get_response_status(&session);
         expect!(km_error_code.is_err(), "Shouldn't be able to call SetBootParams a second time");
 
         // Checking that sending the message a second time fails
-        session.send(&configure_bootpatchlevel_req);
+        session.send(&configure_bootpatchlevel_req).unwrap();
         let km_error_code = get_response_status(&session);
         expect!(
             km_error_code.is_err(),
