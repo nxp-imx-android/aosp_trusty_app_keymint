@@ -226,7 +226,7 @@ pub struct TrustyKeys;
 //       if the IP block never releases the key. KeyMaterial type fixes that issue by including
 //       Opaque keys, but RawKeys are not included in KeyMaterial.
 impl kmr_ta::device::RetrieveKeyMaterial for TrustyKeys {
-    fn root_kek(&self, context: &[u8]) -> Result<crypto::RawKeyMaterial, Error> {
+    fn root_kek(&self, context: &[u8]) -> Result<crypto::OpaqueOr<crypto::hmac::Key>, Error> {
         let context = TrustyKekContext::from_raw(context)?;
         let hwkey_session = Hwkey::open().map_err(|e| {
             km_err!(SecureHwCommunicationFailed, "failed to connect to hwkey: {:?}", e)
@@ -257,7 +257,7 @@ impl kmr_ta::device::RetrieveKeyMaterial for TrustyKeys {
                     })?;
             }
         }
-        Ok(crypto::RawKeyMaterial(key_buffer.to_vec()))
+        Ok(crypto::hmac::Key::new(key_buffer.to_vec()).into())
     }
 
     fn kek_context(&self) -> Result<Vec<u8>, Error> {
@@ -265,7 +265,7 @@ impl kmr_ta::device::RetrieveKeyMaterial for TrustyKeys {
             .to_raw()
     }
 
-    fn kak(&self) -> Result<crypto::aes::Key, Error> {
+    fn kak(&self) -> Result<crypto::OpaqueOr<crypto::aes::Key>, Error> {
         let hwkey_session = Hwkey::open().map_err(|e| {
             km_err!(SecureHwCommunicationFailed, "failed to connect to HwKey: {:?}", e)
         })?;
@@ -276,7 +276,7 @@ impl kmr_ta::device::RetrieveKeyMaterial for TrustyKeys {
             .get_keyslot_data(keyslot, &mut key_buffer)
             .map_err(|e| km_err!(SecureHwCommunicationFailed, "failed to retrieve kak: {:?}", e))?;
         // TODO: check whether `key_buffer` needs truncating to size of `_kak`.
-        Ok(crypto::aes::Key::Aes256(key_buffer))
+        Ok(crypto::aes::Key::Aes256(key_buffer).into())
     }
 
     fn timestamp_token_mac_input(&self, token: &TimeStampToken) -> Result<Vec<u8>, Error> {
@@ -305,6 +305,7 @@ mod tests {
     fn kak_call_returns_key() {
         let trusty_keys = TrustyKeys;
         let kak = trusty_keys.kak().expect("Couldn't retrieve kak");
+        let kak = kmr_common::explicit!(kak).expect("kak should be an explicit key");
 
         expect!(matches!(kak, crypto::aes::Key::Aes256(_)), "Should have received an AES 256 key");
 
@@ -321,11 +322,13 @@ mod tests {
     fn kak_two_calls_returns_same_key() {
         let trusty_keys = TrustyKeys;
 
-        let kak1 = match trusty_keys.kak().expect("Couldn't retrieve kak") {
+        let kak = trusty_keys.kak().expect("Couldn't retrieve kak");
+        let kak1 = match kmr_common::explicit!(kak).expect("kak should be an explicit key") {
             crypto::aes::Key::Aes256(key) => key,
             _ => panic!("Wrong type of key received"),
         };
-        let kak2 = match trusty_keys.kak().expect("Couldn't retrieve kak") {
+        let kak = trusty_keys.kak().expect("Couldn't retrieve kak");
+        let kak2 = match kmr_common::explicit!(kak).expect("kak should be an explicit key") {
             crypto::aes::Key::Aes256(key) => key,
             _ => panic!("Wrong type of key received"),
         };
@@ -338,6 +341,7 @@ mod tests {
         let kek = trusty_keys
             .root_kek(&trusty_keys.kek_context().expect("Couldn't get kek context"))
             .expect("Couldn't get kek");
+        let kek = kmr_common::explicit!(kek).expect("kek should be an explicit key");
 
         // Getting an all 0 key encryption key by chance is not likely if we got a connection to
         // HWKey
@@ -351,12 +355,14 @@ mod tests {
     #[test]
     fn kek_two_calls_returns_same_key() {
         let trusty_keys = TrustyKeys;
-        let kek1 = trusty_keys
+        let kek1 = kmr_common::explicit!(trusty_keys
             .root_kek(&trusty_keys.kek_context().expect("Couldn't get kek context"))
-            .expect("Couldn't get kek");
-        let kek2 = trusty_keys
+            .expect("Couldn't get kek"))
+        .expect("kek should be an explicit key");
+        let kek2 = kmr_common::explicit!(trusty_keys
             .root_kek(&trusty_keys.kek_context().expect("Couldn't get kek context"))
-            .expect("Couldn't get kek");
+            .expect("Couldn't get kek"))
+        .expect("kek should be an explicit key");
 
         expect_eq!(kek1.0, kek2.0, "Calls to root_kek should return the same key");
     }
@@ -384,12 +390,14 @@ mod tests {
         )
         .unwrap();
         let trusty_keys = TrustyKeys;
-        let kek1 = trusty_keys
+        let kek1 = kmr_common::explicit!(trusty_keys
             .root_kek(&context1.to_raw().expect("Couldn't serialize kek1 context"))
-            .expect("Couldn't get kek");
-        let kek2 = trusty_keys
+            .expect("Couldn't get kek"))
+        .expect("kek should be an explicit key");
+        let kek2 = kmr_common::explicit!(trusty_keys
             .root_kek(&context2.to_raw().expect("Couldn't serialize kek2 context"))
-            .expect("Couldn't get kek");
+            .expect("Couldn't get kek"))
+        .expect("kek should be an explicit key");
 
         expect_ne!(kek1.0, kek2.0, "kek keys should be different");
     }
@@ -401,12 +409,14 @@ mod tests {
                 .unwrap();
         let context2 = TrustyKekContext::new(false, None, None).unwrap();
         let trusty_keys = TrustyKeys;
-        let kek1 = trusty_keys
+        let kek1 = kmr_common::explicit!(trusty_keys
             .root_kek(&context1.to_raw().expect("Couldn't serialize kek1 context"))
-            .expect("Couldn't get kek");
-        let kek2 = trusty_keys
+            .expect("Couldn't get kek"))
+        .expect("kek should be an explicit key");
+        let kek2 = kmr_common::explicit!(trusty_keys
             .root_kek(&context2.to_raw().expect("Couldn't serialize kek2 context"))
-            .expect("Couldn't get kek");
+            .expect("Couldn't get kek"))
+        .expect("kek should be an explicit key");
 
         expect_ne!(kek1.0, kek2.0, "kek keys should be different");
     }

@@ -7,8 +7,8 @@ use kmr_common::keyblob::{
 use kmr_common::{
     crypto,
     crypto::{aes, OpaqueKeyMaterial, OpaqueOr},
-    get_bool_tag_value, get_opt_tag_value, get_tag_value, keyblob, km_err, tag, try_to_vec,
-    vec_try, Error, FallibleAllocExt,
+    explicit, get_bool_tag_value, get_opt_tag_value, get_tag_value, keyblob, km_err, tag,
+    try_to_vec, vec_try, Error, FallibleAllocExt,
 };
 use kmr_ta::device;
 use kmr_wire::{
@@ -71,13 +71,14 @@ impl<'a> TrustyLegacyKeyBlobHandler<'a> {
     /// Derive the key encryption key for a keyblob.
     fn derive_kek(
         &self,
-        root_kek: &kmr_common::crypto::RawKeyMaterial,
+        root_kek: &OpaqueOr<kmr_common::crypto::hmac::Key>,
         encrypted_keyblob: &legacy::EncryptedKeyBlob,
         hidden: &[KeyParam],
         sdd_data: Option<(SecureDeletionData, u32)>,
     ) -> Result<crypto::aes::Key, Error> {
         let info = self.build_derivation_info(encrypted_keyblob, hidden, sdd_data)?;
-        let raw_key = self.hkdf.hkdf(&[], &root_kek.0, &info, 256 / 8)?;
+        // Trusty uses explicit keys for legacy keyblobs.
+        let raw_key = self.hkdf.hkdf(&[], &explicit!(root_kek)?.0, &info, 256 / 8)?;
         let aes_key = crypto::aes::Key::Aes256(
             raw_key.try_into().map_err(|_e| km_err!(UnknownError, "unexpected HKDF output len"))?,
         );
