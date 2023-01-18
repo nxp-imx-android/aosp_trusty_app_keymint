@@ -29,6 +29,7 @@ use kmr_ta::device::{
 use log::info;
 use protobuf::{self, Message};
 use storage::{OpenMode, Port, SecureFile, Session};
+use trusty_sys;
 
 #[cfg(feature = "soft_attestation_fallback")]
 mod software;
@@ -192,13 +193,24 @@ pub(crate) fn delete_attestation_ids() -> Result<(), Error> {
 }
 
 /// Return the contents of the specified file in secure storage.
-fn get_file_contents(file_name: &str) -> Result<Vec<u8>, Error> {
+fn get_file_contents(file_name: &str) -> Result<Option<Vec<u8>>, Error> {
     let mut session = Session::new(Port::TamperProof, true).map_err(|e| {
         km_err!(SecureHwCommunicationFailed, "failed to connect to storage port: {:?}", e)
     })?;
-    let file = session.open_file(file_name, OpenMode::Open).map_err(|e| {
-        km_err!(SecureHwCommunicationFailed, "failed to open '{}': {:?}", file_name, e)
-    })?;
+    // Distinguishing between file not found and other errors, so we can match c++ behavior when
+    // retrieving attestation IDs on unprovisioned devices.
+    let file = match session.open_file(file_name, OpenMode::Open) {
+        Ok(file) => file,
+        Err(storage::Error::Code(trusty_sys::Error::NotFound)) => return Ok(None),
+        Err(e) => {
+            return Err(km_err!(
+                SecureHwCommunicationFailed,
+                "failed to open '{}': {:?}",
+                file_name,
+                e
+            ));
+        }
+    };
     let size = session.get_size(&file).map_err(|e| {
         km_err!(SecureHwCommunicationFailed, "failed to get size for '{}': {:?}", file_name, e)
     })?;
@@ -208,12 +220,18 @@ fn get_file_contents(file_name: &str) -> Result<Vec<u8>, Error> {
     })?;
     let total_size = content.len();
     buffer.resize(total_size, 0);
-    Ok(buffer)
+    Ok(Some(buffer))
 }
 
 /// Retrieve the attestation ID information from secure storage.
 pub(crate) fn read_attestation_ids() -> Result<AttestationIdInfo, Error> {
-    let content = get_file_contents(KM_ATTESTATION_ID_FILENAME)?;
+    // Retrieving attestation IDs from file. If the file is not found (device not provisioned) we
+    // will return an empty AttestationIdInfo info to match the c++ code behavior
+    let content = match get_file_contents(KM_ATTESTATION_ID_FILENAME) {
+        Ok(Some(file_contents)) => file_contents,
+        Ok(None) => return Ok(AttestationIdInfo::default()),
+        Err(e) => return Err(e),
+    };
     let mut attestation_ids_pb: keymaster_attributes::AttestationIds =
         Message::parse_from_bytes(content.as_slice())
             .map_err(|e| km_err!(UnknownError, "failed to parse attestation IDs proto: {:?}", e))?;
@@ -239,7 +257,11 @@ fn read_attestation_key_content(
     key_type: SigningKeyType,
 ) -> Result<keymaster_attributes::AttestationKey, Error> {
     let file_name = get_key_slot_file_name(key_type.algo_hint);
-    let content = get_file_contents(&file_name)?;
+    let content = get_file_contents(&file_name)?.ok_or(km_err!(
+        SecureHwCommunicationFailed,
+        "file not found '{}'",
+        file_name
+    ))?;
 
     let pb = Message::parse_from_bytes(content.as_slice())
         .map_err(|e| km_err!(UnknownError, "failed to parse attestation key proto: {:?}", e))?;
@@ -478,6 +500,24 @@ mod tests {
     fn read_ec_rsa_key() {
         read_key_test(SigningAlgorithm::Rsa);
         read_key_test(SigningAlgorithm::Ec);
+    }
+
+    #[test]
+    fn unprovisioned_attestation_ids_do_not_error() {
+        if check_attestation_id_file_exists() {
+            delete_attestation_id_file();
+        }
+        let attestation_ids =
+            read_attestation_ids().expect("Couldn't read attestation IDs when unprovisioned");
+
+        expect_eq!(attestation_ids.brand.len(), 0, "brand should be empty");
+        expect_eq!(attestation_ids.device.len(), 0, "device should be empty");
+        expect_eq!(attestation_ids.product.len(), 0, "product should be empty");
+        expect_eq!(attestation_ids.serial.len(), 0, "serial should be empty");
+        expect_eq!(attestation_ids.imei.len(), 0, "imei should be empty");
+        expect_eq!(attestation_ids.meid.len(), 0, "meid should be empty");
+        expect_eq!(attestation_ids.manufacturer.len(), 0, "manufacturer should be empty");
+        expect_eq!(attestation_ids.model.len(), 0, "model should be empty");
     }
 
     #[test]
