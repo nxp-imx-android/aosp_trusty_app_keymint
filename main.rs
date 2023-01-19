@@ -28,8 +28,18 @@ use kmr_crypto_boring::{
 use kmr_ta::{HardwareInfo, RpcInfo, RpcInfoV3};
 use log::info;
 
+fn log_formatter(record: &log::Record) -> String {
+    // line number should be present, so keeping it simple by just returning a 0.
+    let line = record.line().unwrap_or(0);
+    let file = record.file().unwrap_or("unknown file");
+    format!("{}: {}:{} {}\n", record.level(), file, line, record.args())
+}
+
 fn main() {
-    trusty_log::init();
+    let config = trusty_log::TrustyLoggerConfig::default()
+        .with_min_level(log::Level::Info)
+        .format(&log_formatter);
+    trusty_log::init_with_config(config);
 
     info!("Hello from Keymint Rust!");
 

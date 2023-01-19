@@ -118,8 +118,7 @@ impl<'a> Service for KMService<'a> {
         _handle: &Handle,
         peer: &Uuid,
     ) -> Result<Option<Self::Connection>, TipcError> {
-        // TODO: remove "In keymint: on_connect" once we use a logger that prints more context.
-        info!("In keymint: on_connect. Accepted connection from Uuid {:?}.", peer);
+        info!("Accepted connection from Uuid {:?}.", peer);
         Ok(Some(Context { _uuid: peer.clone() }))
     }
 
@@ -129,15 +128,14 @@ impl<'a> Service for KMService<'a> {
         handle: &Handle,
         msg: Self::Message,
     ) -> Result<bool, TipcError> {
-        // TODO: remove "In keymint: on_message" once we use a logger that prints more context.
-        debug!("In keymint: on_message.");
+        debug!("Received a message.");
         let resp_vec = self.handle_message(&msg.0).map_err(|e| match e {
             Error::Hal(_, err_msg) => {
-                error!("In keymint: on_message. Error: {} in handling the message.", err_msg);
+                error!("Error: {} in handling the message.", err_msg);
                 TipcError::InvalidData
             }
             Error::Alloc(err_msg) => {
-                error!("In keymint: on_message. Error: {} in handling the message.", err_msg);
+                error!("Error: {} in handling the message.", err_msg);
                 TipcError::AllocError
             }
             _ => TipcError::UnknownError,
@@ -354,9 +352,7 @@ impl<'a> Service for KMLegacyService<'a> {
         _handle: &Handle,
         peer: &Uuid,
     ) -> Result<Option<Self::Connection>, TipcError> {
-        // TODO: remove "In keymint: legacy on_connect" once we use a logger that prints
-        //       more context.
-        info!("In keymint: legacy on_connect. Accepted connection from Uuid {:?}.", peer);
+        info!("Accepted connection from Uuid {:?}.", peer);
         Ok(Some(Context { _uuid: peer.clone() }))
     }
 
@@ -366,9 +362,7 @@ impl<'a> Service for KMLegacyService<'a> {
         handle: &Handle,
         msg: Self::Message,
     ) -> Result<bool, TipcError> {
-        // TODO: remove "In keymint: legacy on_message" once we use a logger that prints
-        //       more context.
-        debug!("In keymint: legacy on_message.");
+        debug!("Received legacy message.");
         let req_msg = legacy::deserialize_trusty_req(&msg.0).map_err(|e| {
             error!("Received error when parsing legacy message: {:?}", e);
             TipcError::InvalidData
@@ -455,9 +449,7 @@ impl<'a> Service for KMSecureService<'a> {
         _handle: &Handle,
         peer: &Uuid,
     ) -> Result<Option<Self::Connection>, TipcError> {
-        // TODO: remove "In keymint: secure on_connect" once we use a logger that prints
-        //       more context.
-        info!("In keymint: secure on_connect. Accepted connection from Uuid {:?}.", peer);
+        info!("Accepted connection from Uuid {:?}.", peer);
         Ok(Some(Context { _uuid: peer.clone() }))
     }
 
@@ -467,9 +459,7 @@ impl<'a> Service for KMSecureService<'a> {
         handle: &Handle,
         msg: Self::Message,
     ) -> Result<bool, TipcError> {
-        // TODO: remove "In keymint: secure on_message" once we use a logger that prints
-        //       more context.
-        debug!("In keymint: on_messagesecure on_message.");
+        debug!("Received secure message.");
 
         let req_msg = legacy::deserialize_trusty_secure_req(&msg.0).map_err(|e| {
             error!("Received error when parsing message: {:?}", e);
