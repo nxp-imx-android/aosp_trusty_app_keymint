@@ -17,6 +17,9 @@
 use crate::secure_storage_manager;
 use alloc::{rc::Rc, vec::Vec};
 use core::{cell::RefCell, mem};
+use keymint_access_policy::{
+    keymint_check_secure_target_access_policy_provisioning, keymint_check_target_access_policy,
+};
 use kmr_common::{
     crypto, km_err,
     wire::legacy::{
@@ -51,7 +54,7 @@ const KEYMINT_MAX_MESSAGE_CONTENT_SIZE: usize = 4000;
 
 /// TIPC connection context information.
 struct Context {
-    _uuid: Uuid,
+    uuid: Uuid,
 }
 
 /// Newtype wrapper for opaque messages.
@@ -119,8 +122,8 @@ impl<'a> Service for KMService<'a> {
         _handle: &Handle,
         peer: &Uuid,
     ) -> Result<Option<Self::Connection>, TipcError> {
-        info!("Accepted connection from Uuid {:?}.", peer);
-        Ok(Some(Context { _uuid: peer.clone() }))
+        info!("Accepted connection from uuid {:?}.", peer);
+        Ok(Some(Context { uuid: peer.clone() }))
     }
 
     fn on_message(
@@ -368,8 +371,8 @@ impl<'a> Service for KMLegacyService<'a> {
         _handle: &Handle,
         peer: &Uuid,
     ) -> Result<Option<Self::Connection>, TipcError> {
-        info!("Accepted connection from Uuid {:?}.", peer);
-        Ok(Some(Context { _uuid: peer.clone() }))
+        info!("Accepted connection from uuid {:?}.", peer);
+        Ok(Some(Context { uuid: peer.clone() }))
     }
 
     fn on_message(
@@ -466,13 +469,17 @@ impl<'a> Service for KMSecureService<'a> {
         _handle: &Handle,
         peer: &Uuid,
     ) -> Result<Option<Self::Connection>, TipcError> {
-        info!("Accepted connection from Uuid {:?}.", peer);
-        Ok(Some(Context { _uuid: peer.clone() }))
+        if !keymint_check_target_access_policy(peer) {
+            error!("access policy rejected the uuid: {:?}", peer);
+            return Ok(None);
+        }
+        info!("Accepted connection from uuid {:?}.", peer);
+        Ok(Some(Context { uuid: peer.clone() }))
     }
 
     fn on_message(
         &self,
-        _connection: &Self::Connection,
+        connection: &Self::Connection,
         handle: &Handle,
         msg: Self::Message,
     ) -> Result<bool, TipcError> {
@@ -483,6 +490,12 @@ impl<'a> Service for KMSecureService<'a> {
             TipcError::InvalidData
         })?;
         let op = req_msg.code();
+        if matches!(&req_msg, TrustyPerformSecureOpReq::SetAttestationIds(_))
+            && !keymint_check_secure_target_access_policy_provisioning(&connection.uuid)
+        {
+            error!("access policy rejected the uuid: {:?}", &connection.uuid);
+            return Ok(false);
+        }
 
         let resp = match self.handle_message(req_msg) {
             Ok(resp_msg) => legacy::serialize_trusty_secure_rsp(resp_msg).map_err(|e| {
@@ -613,6 +626,22 @@ mod tests {
         let _session3 = Handle::connect(port3.as_c_str()).unwrap();
     }
 
+    // #[test]
+    fn test_access_policy() {
+        // Test whether the access policy is in action.
+        // Keymint unit test app should be able to connect to the KM secure service.
+        let port = CString::try_new(KM_SEC_TIPC_SRV_PORT).unwrap();
+        Handle::connect(port.as_c_str())
+            .expect("Keymint unit test app should be able to connect to the KM secure service");
+
+        // Keymint unit test app should not be able to call the attestation id provisioning API
+        // in the KM secure service.
+        let err = set_attestation_ids_secure().expect_err(
+            "An error is expected. Keymint unit test app shouldn't be able to provision",
+        );
+        assert_eq!(err, TipcError::SystemError(trusty_sys::Error::NoMsg));
+    }
+
     fn check_response_status(rsp: &KMMessage) -> Result<(), ErrorCode> {
         let error_code = legacy::deserialize_trusty_rsp_error_code(&rsp.0)
             .expect("Couldn't retrieve error code");
@@ -707,6 +736,38 @@ mod tests {
         let response: KMMessage = session.recv(buf).expect("Didn't get response");
         let km_error_code = check_response_status(&response);
         expect!(km_error_code.is_ok(), "Should be able to call SetAttestatonKeys");
+    }
+
+    fn set_attestation_ids_secure() -> Result<(), TipcError> {
+        let port = CString::try_new(KM_SEC_TIPC_SRV_PORT).unwrap();
+        let session = Handle::connect(port.as_c_str()).unwrap();
+
+        // Creating a SetAttestationIds message
+        let brand = b"no brand".to_vec();
+        let device = b"a new device".to_vec();
+        let product = b"p1".to_vec();
+        let serial = vec![b'5'; 64];
+        let imei = b"7654321".to_vec();
+        let meid = b"1234567".to_vec();
+        let manufacturer = b"a manufacturer".to_vec();
+        let model = b"the new one".to_vec();
+        let req = get_set_attestation_ids_message(
+            &brand,
+            &device,
+            &product,
+            &serial,
+            &imei,
+            &meid,
+            &manufacturer,
+            &model,
+        )
+        .expect("couldn't construct SetAttestatonIds request");
+        let set_attestation_ids_req = KMMessage(req);
+
+        // Sending SetAttestationIds
+        session.send(&set_attestation_ids_req).unwrap();
+        let buf = &mut [0; KEYMINT_MAX_BUFFER_LENGTH as usize];
+        session.recv(buf)
     }
 
     //#[test]

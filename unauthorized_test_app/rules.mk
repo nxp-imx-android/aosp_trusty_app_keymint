@@ -1,4 +1,4 @@
-# Copyright (C) 2022 The Android Open Source Project
+# Copyright (C) 2023 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,31 +22,11 @@ MANIFEST := $(LOCAL_DIR)/manifest.json
 MODULE_SRCS += \
 	$(LOCAL_DIR)/lib.rs \
 
-MODULE_CRATE_NAME := keymint
+MODULE_CRATE_NAME := keymint_unauthorized_test_app
 
 MODULE_LIBRARY_DEPS += \
-	trusty/user/base/lib/hwbcc/rust \
-	trusty/user/base/lib/hwkey/rust \
-	trusty/user/base/lib/hwwsk/rust \
-	trusty/user/base/lib/keymint-rust/boringssl \
-	trusty/user/base/lib/keymint-rust/common \
-	trusty/user/base/lib/keymint-rust/ta \
-	trusty/user/base/lib/log-rust \
-	trusty/user/base/lib/protobuf-rust \
-	trusty/user/base/lib/storage/rust \
 	trusty/user/base/lib/tipc/rust \
-	trusty/user/base/lib/system_state/rust \
-	trusty/user/base/lib/trusty-log \
 	trusty/user/base/lib/trusty-std \
-
-ifdef TRUSTY_KM_RUST_ACCESS_POLICY
-    MODULE_LIBRARY_DEPS+= $(TRUSTY_KM_RUST_ACCESS_POLICY)
-else
-    MODULE_LIBRARY_DEPS+= trusty/user/app/keymint/generic_access_policy
-endif
-
-MODULE_RUSTFLAGS += \
-	--cfg 'feature="soft_attestation_fallback"' \
 
 MODULE_RUST_TESTS := true
 

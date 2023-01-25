@@ -1,4 +1,4 @@
-# Copyright (C) 2022 The Android Open Source Project
+# Copyright (C) 2023 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,25 +17,13 @@ LOCAL_DIR := $(GET_LOCAL_DIR)
 
 MODULE := $(LOCAL_DIR)
 
-MANIFEST := $(LOCAL_DIR)/manifest.json
-
 MODULE_SRCS += \
-	$(LOCAL_DIR)/../main.rs \
+	$(LOCAL_DIR)/lib.rs \
 
-MODULE_CRATE_NAME := keymint_app
+MODULE_CRATE_NAME := keymint_access_policy
 
 MODULE_LIBRARY_DEPS += \
-	trusty/user/app/keymint \
-	trusty/user/app/keymint/unauthorized_test_app \
-	trusty/user/base/lib/keymint-rust/boringssl \
-	trusty/user/base/lib/keymint-rust/common \
-	trusty/user/base/lib/keymint-rust/ta \
-	trusty/user/base/lib/keymint-rust/wire \
-	trusty/user/base/lib/libc-rust \
-	trusty/user/base/lib/libstd-rust \
-	trusty/user/base/lib/log-rust \
 	trusty/user/base/lib/tipc/rust \
-	trusty/user/base/lib/trusty-log \
-	trusty/user/base/lib/trusty-std \
+	trusty/user/base/lib/trusty-sys \
 
-include make/trusted_app.mk
+include make/library.mk
