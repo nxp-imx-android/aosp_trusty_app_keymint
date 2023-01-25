@@ -16,9 +16,9 @@
 //! Trusty implementation of RetrieveKeyMaterial.
 
 use alloc::vec::Vec;
+use core::ffi::CStr;
 use hwkey::{Hwkey, KdfVersion, OsRollbackVersion, RollbackVersionSource};
 use kmr_common::{crypto, km_err, vec_try_with_capacity, Error};
-use trusty_std::ffi::CStr;
 
 pub(crate) mod legacy;
 

@@ -15,6 +15,7 @@
  */
 //! Trusty implementation of StorageKeyWrapper trait.
 use alloc::vec::Vec;
+use core::ffi::CStr;
 use hwwsk;
 use kmr_common::{
     crypto,
@@ -27,7 +28,6 @@ use kmr_ta::device::StorageKeyWrapper;
 use kmr_wire::{keymint, keymint::ErrorCode, KeySizeInBits};
 use log::warn;
 use tipc::Handle;
-use trusty_std::ffi::CStr;
 
 /// TIPC port used for communication with the `hwwsk` service.
 const HWWSK_PORT: &'static [u8] = b"com.android.trusty.hwwsk\0";
