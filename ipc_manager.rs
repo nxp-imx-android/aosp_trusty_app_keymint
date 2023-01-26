@@ -574,7 +574,7 @@ mod tests {
         legacy::{self, InnerSerialize},
     };
     use test::expect;
-    use trusty_std::ffi::CString;
+    use trusty_std::ffi::{CString, FallibleCString};
 
     const CONFIGURE_BOOT_PATCHLEVEL_CMD: u32 =
         legacy::TrustyKeymasterOperation::ConfigureBootPatchlevel as u32;
