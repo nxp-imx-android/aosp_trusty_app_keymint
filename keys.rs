@@ -17,8 +17,10 @@
 
 use alloc::vec::Vec;
 use core::ffi::CStr;
+use core::mem::size_of;
 use hwkey::{Hwkey, KdfVersion, OsRollbackVersion, RollbackVersionSource};
 use kmr_common::{crypto, km_err, vec_try_with_capacity, Error};
+use kmr_wire::secureclock::{TimeStampToken, TIME_STAMP_MAC_LABEL};
 
 pub(crate) mod legacy;
 
@@ -275,6 +277,21 @@ impl kmr_ta::device::RetrieveKeyMaterial for TrustyKeys {
             .map_err(|e| km_err!(SecureHwCommunicationFailed, "failed to retrieve kak: {:?}", e))?;
         // TODO: check whether `key_buffer` needs truncating to size of `_kak`.
         Ok(crypto::aes::Key::Aes256(key_buffer))
+    }
+
+    fn timestamp_token_mac_input(&self, token: &TimeStampToken) -> Result<Vec<u8>, Error> {
+        let mut result = vec_try_with_capacity!(
+            TIME_STAMP_MAC_LABEL.len() +
+        size_of::<i64>() + // challenge (host-endian)
+        size_of::<i64>() + // timestamp (host-endian)
+        size_of::<u32>() // 1u32 (host-endian)
+        )?;
+        // For compatibility with previous implementations, use native byte order for MAC inputs.
+        result.extend_from_slice(TIME_STAMP_MAC_LABEL);
+        result.extend_from_slice(&token.challenge.to_ne_bytes()[..]);
+        result.extend_from_slice(&token.timestamp.milliseconds.to_ne_bytes()[..]);
+        result.extend_from_slice(&1u32.to_ne_bytes()[..]);
+        Ok(result)
     }
 }
 
