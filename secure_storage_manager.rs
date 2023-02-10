@@ -140,6 +140,7 @@ pub(crate) fn provision_attestation_id_file(
     meid: &[u8],
     manufacturer: &[u8],
     model: &[u8],
+    maybe_imei2: Option<&[u8]>,
 ) -> Result<(), Error> {
     let mut file = create_attestation_id_file()?;
 
@@ -168,6 +169,12 @@ pub(crate) fn provision_attestation_id_file(
     }
     if model.len() > 0 {
         attestation_ids.set_model(try_to_vec(model)?);
+    }
+    match maybe_imei2 {
+        Some(imei2) if imei2.len() > 0 => {
+            attestation_ids.set_second_imei(try_to_vec(imei2)?);
+        }
+        _ => (),
     }
 
     let serialized_buffer = attestation_ids.write_to_bytes().map_err(|e| {
@@ -245,9 +252,14 @@ pub(crate) fn read_attestation_ids() -> Result<AttestationIdInfo, Error> {
     let manufacturer = attestation_ids_pb.take_manufacturer();
     let model = attestation_ids_pb.take_model();
 
-    // Pixel devices are provisioned with two consecutive IMEI values, but only the first is stored
-    // in the data.
-    let imei2 = kmr_common::tag::increment_imei(&imei);
+    // Pixel devices are provisioned with two consecutive IMEI values, in earlier devices only the
+    // first one was stored.  Use the storage imei if it exists, otherwise generate it based on the
+    // first imei.
+    let imei2 = if attestation_ids_pb.has_second_imei() {
+        attestation_ids_pb.take_second_imei()
+    } else {
+        kmr_common::tag::increment_imei(&imei)
+    };
 
     Ok(AttestationIdInfo { brand, device, product, serial, imei, imei2, meid, manufacturer, model })
 }
@@ -394,6 +406,7 @@ mod tests {
         expect_eq!(lhs.meid, rhs.meid, "meid doesn't match");
         expect_eq!(lhs.manufacturer, rhs.manufacturer, "manufacturer doesn't match");
         expect_eq!(lhs.model, rhs.model, "model doesn't match");
+        expect_eq!(lhs.imei2, rhs.imei2, "imei2 doesn't match");
     }
 
     fn read_certificates_test(algorithm: SigningAlgorithm) {
@@ -518,6 +531,7 @@ mod tests {
         expect_eq!(attestation_ids.meid.len(), 0, "meid should be empty");
         expect_eq!(attestation_ids.manufacturer.len(), 0, "manufacturer should be empty");
         expect_eq!(attestation_ids.model.len(), 0, "model should be empty");
+        expect_eq!(attestation_ids.imei2.len(), 0, "imei2 should be empty");
     }
 
     #[test]
@@ -553,6 +567,7 @@ mod tests {
         expect_eq!(attestation_ids_info.meid.len(), 0, "shouldn't have a meid");
         expect_eq!(attestation_ids_info.manufacturer.len(), 0, "shouldn't have a manufacturer");
         expect_eq!(attestation_ids_info.model.len(), 0, "shouldn't have a model");
+        expect_eq!(attestation_ids_info.imei2.len(), 0, "shouldn't have a model");
 
         // Now using a raw protobuf
         let raw_protobuf = [10, 9, 110, 101, 119, 32, 98, 114, 97, 110, 100];
@@ -575,6 +590,106 @@ mod tests {
     }
 
     #[test]
+    fn test_provision_attestation_id_file() {
+        let brand = b"unknown brand";
+        let product = b"";
+        let device = b"my brand new device";
+        let serial = vec![b'9'; 64];
+        let imei = b" ";
+        let meid = b"\0";
+        let manufacturer = b"manufacturer #$%%^";
+        let model = b"working one";
+        let imei2 = b"0";
+
+        assert!(provision_attestation_id_file(
+            brand,
+            product,
+            device,
+            &serial,
+            imei,
+            meid,
+            manufacturer,
+            model,
+            Some(imei2)
+        )
+        .is_ok());
+
+        let attestation_ids_info =
+            read_attestation_ids().expect("Couldn't read attestation IDs from storage");
+
+        delete_attestation_id_file();
+        expect_eq!(
+            check_attestation_id_file_exists(),
+            false,
+            "Couldn't delete attestation IDs file"
+        );
+
+        expect_eq!(attestation_ids_info.brand, brand.to_vec(), "brand doesn't match");
+        expect_eq!(attestation_ids_info.device, device.to_vec(), "device doesn't match");
+        expect_eq!(attestation_ids_info.product, product.to_vec(), "product doesn't match");
+        expect_eq!(attestation_ids_info.serial, serial, "serial doesn't match");
+        expect_eq!(attestation_ids_info.imei, imei.to_vec(), "imei doesn't match");
+        expect_eq!(attestation_ids_info.meid, meid.to_vec(), "meid doesn't match");
+        expect_eq!(
+            attestation_ids_info.manufacturer,
+            manufacturer.to_vec(),
+            "manufacturer doesn't match"
+        );
+        expect_eq!(attestation_ids_info.model, model.to_vec(), "model doesn't match");
+        expect_eq!(attestation_ids_info.imei2, imei2.to_vec(), "imei2 doesn't match");
+    }
+
+    #[test]
+    fn test_provision_attestation_id_file_imei2_none() {
+        let brand = b"unknown brand";
+        let product = b"";
+        let device = b"my brand new device";
+        let serial = vec![b'9'; 64];
+        let imei = b"000000123456782";
+        let meid = b"\0";
+        let manufacturer = b"manufacturer #$%%^";
+        let model = b"working one";
+        let expected_imei2 = b"123456790";
+
+        assert!(provision_attestation_id_file(
+            brand,
+            product,
+            device,
+            &serial,
+            imei,
+            meid,
+            manufacturer,
+            model,
+            None
+        )
+        .is_ok());
+
+        let attestation_ids_info =
+            read_attestation_ids().expect("Couldn't read attestation IDs from storage");
+
+        delete_attestation_id_file();
+        expect_eq!(
+            check_attestation_id_file_exists(),
+            false,
+            "Couldn't delete attestation IDs file"
+        );
+
+        expect_eq!(attestation_ids_info.brand, brand.to_vec(), "brand doesn't match");
+        expect_eq!(attestation_ids_info.device, device.to_vec(), "device doesn't match");
+        expect_eq!(attestation_ids_info.product, product.to_vec(), "product doesn't match");
+        expect_eq!(attestation_ids_info.serial, serial, "serial doesn't match");
+        expect_eq!(attestation_ids_info.imei, imei.to_vec(), "imei doesn't match");
+        expect_eq!(attestation_ids_info.meid, meid.to_vec(), "meid doesn't match");
+        expect_eq!(
+            attestation_ids_info.manufacturer,
+            manufacturer.to_vec(),
+            "manufacturer doesn't match"
+        );
+        expect_eq!(attestation_ids_info.model, model.to_vec(), "model doesn't match");
+        expect_eq!(attestation_ids_info.imei2, expected_imei2.to_vec(), "imei2 doesn't match");
+    }
+
+    #[test]
     fn all_attestation_id_fields() {
         let mut file = create_attestation_id_file().expect("Couldn't create attestation id file");
         let mut attestation_ids = keymaster_attributes::AttestationIds::new();
@@ -586,6 +701,7 @@ mod tests {
         let meid = b"\0";
         let manufacturer = b"manufacturer #$%%^";
         let model = b"working one";
+        let imei2 = b"0";
 
         attestation_ids.set_brand(brand.to_vec());
         attestation_ids.set_device(device.to_vec());
@@ -595,6 +711,7 @@ mod tests {
         attestation_ids.set_meid(meid.to_vec());
         attestation_ids.set_manufacturer(manufacturer.to_vec());
         attestation_ids.set_model(model.to_vec());
+        attestation_ids.set_second_imei(imei2.to_vec());
 
         let serialized_buffer =
             attestation_ids.write_to_bytes().expect("Couldn't serialize attestationIds");
@@ -624,6 +741,7 @@ mod tests {
             "manufacturer doesn't match"
         );
         expect_eq!(attestation_ids_info.model, model.to_vec(), "model doesn't match");
+        expect_eq!(attestation_ids_info.imei2, imei2.to_vec(), "imei2 doesn't match");
 
         // Now trying the same from a raw protobuf
         let raw_protobuf = [
@@ -634,6 +752,7 @@ mod tests {
             57, 57, 57, 57, 57, 57, 57, 57, 57, 57, 57, 57, 57, 57, 57, 57, 57, 57, 57, 57, 57, 57,
             42, 1, 32, 50, 1, 0, 58, 18, 109, 97, 110, 117, 102, 97, 99, 116, 117, 114, 101, 114,
             32, 35, 36, 37, 37, 94, 66, 11, 119, 111, 114, 107, 105, 110, 103, 32, 111, 110, 101,
+            74, 1, 48,
         ];
 
         let mut file = create_attestation_id_file().expect("Couldn't create attestation id file");

@@ -21,9 +21,10 @@ use kmr_common::{
     crypto, km_err,
     wire::legacy::{
         self, ConfigureBootPatchlevelResponse, GetAuthTokenKeyResponse, GetDeviceInfoResponse,
-        GetVersion2Response, GetVersionResponse, SetAttestationIdsResponse,
-        SetAttestationKeyResponse, SetBootParamsResponse, TrustyMessageId, TrustyPerformOpReq,
-        TrustyPerformOpRsp, TrustyPerformSecureOpReq, TrustyPerformSecureOpRsp,
+        GetVersion2Response, GetVersionResponse, SetAttestationIdsKM3Response,
+        SetAttestationIdsResponse, SetAttestationKeyResponse, SetBootParamsResponse,
+        TrustyMessageId, TrustyPerformOpReq, TrustyPerformOpRsp, TrustyPerformSecureOpReq,
+        TrustyPerformSecureOpRsp,
     },
     Error,
 };
@@ -332,8 +333,23 @@ impl<'a> KMLegacyService<'a> {
                     &req.meid,
                     &req.manufacturer,
                     &req.model,
+                    None,
                 )?;
                 Ok(TrustyPerformOpRsp::SetAttestationIds(SetAttestationIdsResponse {}))
+            }
+            TrustyPerformOpReq::SetAttestationIdsKM3(req) => {
+                secure_storage_manager::provision_attestation_id_file(
+                    &req.base.brand,
+                    &req.base.product,
+                    &req.base.device,
+                    &req.base.serial,
+                    &req.base.imei,
+                    &req.base.meid,
+                    &req.base.manufacturer,
+                    &req.base.model,
+                    Some(&req.second_imei),
+                )?;
+                Ok(TrustyPerformOpRsp::SetAttestationIdsKM3(SetAttestationIdsKM3Response {}))
             }
             // TODO: Check if we need to support other provisioning messages:
             // (AppendAttestationCertChain, ClearAttestationCertChain, SetWrappedAttestationKey)
@@ -432,6 +448,7 @@ impl<'a> KMSecureService<'a> {
                     &req.meid,
                     &req.manufacturer,
                     &req.model,
+                    None,
                 )?;
                 Ok(TrustyPerformSecureOpRsp::SetAttestationIds(SetAttestationIdsResponse {}))
             }
