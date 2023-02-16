@@ -42,6 +42,11 @@ const KM_ATTESTATION_ID_FILENAME: &'static str = "AttestationIds";
 /// `kAttestKeyCertPrefix` value in `secure_storage_manager.cpp` for back-compatibility.
 const KM_ATTESTATION_KEY_CERT_PREFIX: &'static str = "AttestKeyCert";
 
+/// Maximum size of each attestation certificate
+const MAX_CERT_SIZE: usize = 2048;
+/// Maximum number of attestation certificates
+const MAX_CERT_CHAIN_LEN: usize = 3;
+
 /// Return the filename for the file holding attestation keys and certificates for the specified
 /// signing algorithm.
 fn get_key_slot_file_name(algorithm: SigningAlgorithm) -> String {
@@ -118,6 +123,20 @@ fn create_attestation_key_file(algorithm: SigningAlgorithm) -> Result<OpenSecure
     OpenSecureFile::new(&file_name)
 }
 
+fn write_protobuf_to_attestation_key_file(
+    algorithm: SigningAlgorithm,
+    attestation_key_data: keymaster_attributes::AttestationKey,
+) -> Result<(), Error> {
+    let serialized_buffer = attestation_key_data.write_to_bytes().map_err(|e| {
+        km_err!(SecureHwCommunicationFailed, "couldn't serialize attestationKey: {:?}", e)
+    })?;
+    let mut file = create_attestation_key_file(algorithm)?;
+    file.write_all(&serialized_buffer).map_err(|e| {
+        km_err!(SecureHwCommunicationFailed, "failed to provision attestation key file: {:?}", e)
+    })?;
+    Ok(())
+}
+
 /// Tries to read the file containing the attestation key and certificates and only replaces the key
 /// section. If the file doesn't exist it will create it and save the provided key.
 pub(crate) fn provision_attestation_key_file(
@@ -127,14 +146,45 @@ pub(crate) fn provision_attestation_key_file(
     let mut attestation_key = read_attestation_key_content(algorithm)?;
     attestation_key.set_key(try_to_vec(key_data)?);
 
-    let serialized_buffer = attestation_key.write_to_bytes().map_err(|e| {
-        km_err!(SecureHwCommunicationFailed, "couldn't serialize attestationKey: {:?}", e)
-    })?;
-    let mut file = create_attestation_key_file(algorithm)?;
-    file.write_all(&serialized_buffer).map_err(|e| {
-        km_err!(SecureHwCommunicationFailed, "failed to provision attestation key file: {:?}", e)
-    })?;
-    Ok(())
+    write_protobuf_to_attestation_key_file(algorithm, attestation_key)
+}
+
+/// Tries to read the file containing the attestation key and certificates and adds a certificate to
+/// it if there is still space left on the certificate section. If the file doesn't exist it will
+/// create it and save the provided certificate.
+pub(crate) fn append_attestation_cert_chain(
+    algorithm: SigningAlgorithm,
+    cert_data: &[u8],
+) -> Result<(), Error> {
+    if cert_data.len() == 0 {
+        return Err(km_err!(InvalidInputLength, "received a certificate of length 0"));
+    }
+
+    if cert_data.len() > MAX_CERT_SIZE {
+        return Err(km_err!(
+            InvalidArgument,
+            "certificate is too big. Size: {}, max size {}",
+            cert_data.len(),
+            MAX_CERT_SIZE
+        ));
+    }
+
+    let mut attestation_key_data = read_attestation_key_content(algorithm)?;
+    let cert_chain_len = attestation_key_data.get_certs().len();
+
+    if cert_chain_len >= MAX_CERT_CHAIN_LEN {
+        return Err(km_err!(
+            InvalidArgument,
+            "cannot accept more certificates, {} already provisioned",
+            cert_chain_len
+        ));
+    }
+
+    let mut cert = keymaster_attributes::AttestationCert::new();
+    cert.set_content(try_to_vec(cert_data)?);
+    attestation_key_data.mut_certs().push(cert);
+
+    write_protobuf_to_attestation_key_file(algorithm, attestation_key_data)
 }
 
 /// Creates a new attestation IDs file and saves the provided data there
@@ -479,11 +529,15 @@ mod tests {
         read_certificates_test(SigningAlgorithm::Ec);
     }
 
-    fn get_test_attestation_key(algorithm: SigningAlgorithm) -> Result<KeyMaterial, Error> {
-        let key_buffer = match algorithm {
+    fn get_test_key_data(algorithm: SigningAlgorithm) -> &'static [u8] {
+        match algorithm {
             SigningAlgorithm::Rsa => RSA_KEY,
             SigningAlgorithm::Ec => EC_KEY,
-        };
+        }
+    }
+
+    fn get_test_attestation_key(algorithm: SigningAlgorithm) -> Result<KeyMaterial, Error> {
+        let key_buffer = get_test_key_data(algorithm);
         let key = match algorithm {
             SigningAlgorithm::Ec => crypto::ec::import_pkcs8_key(key_buffer)?,
             SigningAlgorithm::Rsa => {
@@ -532,10 +586,7 @@ mod tests {
     }
 
     fn read_key_test(algorithm: SigningAlgorithm) {
-        let test_key = match algorithm {
-            SigningAlgorithm::Rsa => RSA_KEY,
-            SigningAlgorithm::Ec => EC_KEY,
-        };
+        let test_key = get_test_key_data(algorithm);
 
         provision_attestation_key_file(algorithm, test_key).expect("Couldn't provision key");
 
@@ -584,6 +635,51 @@ mod tests {
         let key_type =
             SigningKeyType { which: SigningKey::Batch, algo_hint: SigningAlgorithm::Rsa };
         expect!(read_attestation_key(key_type).is_err(), "Shouldn't be able to read a key");
+    }
+
+    #[test]
+    fn provision_certs_test() {
+        provision_certs_test_impl(SigningAlgorithm::Ec, true);
+        provision_certs_test_impl(SigningAlgorithm::Rsa, true);
+        provision_certs_test_impl(SigningAlgorithm::Ec, false);
+        provision_certs_test_impl(SigningAlgorithm::Rsa, false);
+    }
+
+    fn provision_certs_test_impl(algorithm: SigningAlgorithm, key_first: bool) {
+        if check_key_file_exists(algorithm) {
+            delete_key_file(algorithm);
+        }
+        let test_key = get_test_key_data(algorithm);
+        if key_first {
+            provision_attestation_key_file(algorithm, test_key).expect("Couldn't provision key");
+        }
+        let cert1 = [b'a'; 2048].as_slice();
+        let cert2 = [b'b'; 2048].as_slice();
+        let cert3 = [b'c'; 2048].as_slice();
+        let certs = [cert1, cert2, cert3];
+        for cert_data in certs.iter() {
+            append_attestation_cert_chain(algorithm, cert_data)
+                .expect("Couldn't provision certificate");
+        }
+        expect!(
+            append_attestation_cert_chain(algorithm, cert3).is_err(),
+            "Shouldn't be able to add more certificates"
+        );
+        if !key_first {
+            provision_attestation_key_file(algorithm, test_key).expect("Couldn't provision key");
+        }
+        let key_type = SigningKeyType { which: SigningKey::Batch, algo_hint: algorithm };
+        let read_test_key = read_attestation_key(key_type).expect("Couldn't read attestation key");
+        //Getting test key data on a format that can be compared with the key in storage
+        let test_key = get_test_attestation_key(algorithm).expect("Couldn't get test key");
+        expect_eq!(test_key, read_test_key, "Test keys didn't match");
+
+        let read_certs = get_cert_chain(key_type).expect("Couldn't get certificates from storage");
+        expect_eq!(read_certs.len(), 3, "Didn't get all certificates back");
+        for (cert, read_cert) in certs.iter().zip(read_certs.iter()) {
+            expect_eq!(cert, &read_cert.encoded_certificate, "got wrong certificate back");
+        }
+        delete_key_file(algorithm);
     }
 
     #[test]
