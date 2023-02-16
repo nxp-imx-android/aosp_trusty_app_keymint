@@ -187,6 +187,29 @@ pub(crate) fn append_attestation_cert_chain(
     write_protobuf_to_attestation_key_file(algorithm, attestation_key_data)
 }
 
+/// Tries to read the file containing the attestation key delete only the certificate section.
+pub(crate) fn clear_attestation_cert_chain(algorithm: SigningAlgorithm) -> Result<(), Error> {
+    let mut attestation_key_data = read_attestation_key_content(algorithm)?;
+    if attestation_key_data.get_certs().len() == 0 {
+        // No certs found, nothing to delete.
+        return Ok(());
+    }
+    attestation_key_data.clear_certs();
+    write_protobuf_to_attestation_key_file(algorithm, attestation_key_data)?;
+    // Checking that the certificates were indeed deleted
+    let attestation_key_data = read_attestation_key_content(algorithm)?;
+    let cert_chain_len = attestation_key_data.get_certs().len();
+    if cert_chain_len != 0 {
+        log::error!("Couldn't delete all certificates, found {}", cert_chain_len);
+        return Err(km_err!(
+            UnknownError,
+            "couldn't delete all certificates, found {}",
+            cert_chain_len
+        ));
+    }
+    Ok(())
+}
+
 /// Creates a new attestation IDs file and saves the provided data there
 pub(crate) fn provision_attestation_id_file(
     brand: &[u8],
@@ -680,6 +703,54 @@ mod tests {
             expect_eq!(cert, &read_cert.encoded_certificate, "got wrong certificate back");
         }
         delete_key_file(algorithm);
+    }
+
+    fn clear_certificate_chain_works_when_unprovisioned_impl(algorithm: SigningAlgorithm) {
+        if check_key_file_exists(algorithm) {
+            delete_key_file(algorithm);
+        }
+        clear_attestation_cert_chain(algorithm).expect("couldn't clear certificate chain");
+        expect!(
+            check_key_file_exists(algorithm) == false,
+            "Shouldn't have created a file if it didn't existed originally"
+        );
+    }
+
+    #[test]
+    fn clear_certificate_chain_works_when_unprovisioned() {
+        clear_certificate_chain_works_when_unprovisioned_impl(SigningAlgorithm::Ec);
+        clear_certificate_chain_works_when_unprovisioned_impl(SigningAlgorithm::Rsa);
+    }
+
+    fn clear_certificate_chain_works_impl(algorithm: SigningAlgorithm) {
+        if check_key_file_exists(algorithm) {
+            delete_key_file(algorithm);
+        }
+        let test_key = get_test_key_data(algorithm);
+        provision_attestation_key_file(algorithm, test_key).expect("Couldn't provision key");
+        let cert = [b'a'; 2048].as_slice();
+        append_attestation_cert_chain(algorithm, cert).expect("Couldn't provision certificate");
+
+        let key_type = SigningKeyType { which: SigningKey::Batch, algo_hint: algorithm };
+        let read_certs = get_cert_chain(key_type).expect("Couldn't get certificates from storage");
+        expect_eq!(read_certs.len(), 1, "Didn't get all certificates back");
+
+        clear_attestation_cert_chain(algorithm).expect("couldn't clear certificate chain");
+
+        expect!(get_cert_chain(key_type).is_err(), "Certificates were not deleted");
+
+        let read_test_key = read_attestation_key(key_type).expect("Couldn't read attestation key");
+        //Getting test key data on a format that can be compared with the key in storage
+        let test_key = get_test_attestation_key(algorithm).expect("Couldn't get test key");
+        expect_eq!(test_key, read_test_key, "Test keys didn't match");
+
+        delete_key_file(algorithm);
+    }
+
+    #[test]
+    fn clear_certificate_chain_works() {
+        clear_certificate_chain_works_impl(SigningAlgorithm::Ec);
+        clear_certificate_chain_works_impl(SigningAlgorithm::Rsa);
     }
 
     #[test]

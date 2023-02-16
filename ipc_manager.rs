@@ -23,11 +23,12 @@ use keymint_access_policy::{
 use kmr_common::{
     crypto, km_err,
     wire::legacy::{
-        self, AppendAttestationCertChainResponse, ConfigureBootPatchlevelResponse,
-        GetAuthTokenKeyResponse, GetDeviceInfoResponse, GetVersion2Response, GetVersionResponse,
-        SetAttestationIdsKM3Response, SetAttestationIdsResponse, SetAttestationKeyResponse,
-        SetBootParamsResponse, TrustyMessageId, TrustyPerformOpReq, TrustyPerformOpRsp,
-        TrustyPerformSecureOpReq, TrustyPerformSecureOpRsp,
+        self, AppendAttestationCertChainResponse, ClearAttestationCertChainResponse,
+        ConfigureBootPatchlevelResponse, GetAuthTokenKeyResponse, GetDeviceInfoResponse,
+        GetVersion2Response, GetVersionResponse, SetAttestationIdsKM3Response,
+        SetAttestationIdsResponse, SetAttestationKeyResponse, SetBootParamsResponse,
+        TrustyMessageId, TrustyPerformOpReq, TrustyPerformOpRsp, TrustyPerformSecureOpReq,
+        TrustyPerformSecureOpRsp,
     },
     Error,
 };
@@ -333,6 +334,13 @@ impl<'a> KMLegacyService<'a> {
                     AppendAttestationCertChainResponse {},
                 ))
             }
+            TrustyPerformOpReq::ClearAttestationCertChain(req) => {
+                let algorithm = keymaster_algorithm_to_signing_algorithm(req.algorithm)?;
+                secure_storage_manager::clear_attestation_cert_chain(algorithm)?;
+                Ok(TrustyPerformOpRsp::ClearAttestationCertChain(
+                    ClearAttestationCertChainResponse {},
+                ))
+            }
             TrustyPerformOpReq::SetAttestationIds(req) => {
                 secure_storage_manager::provision_attestation_id_file(
                     &req.brand,
@@ -362,7 +370,7 @@ impl<'a> KMLegacyService<'a> {
                 Ok(TrustyPerformOpRsp::SetAttestationIdsKM3(SetAttestationIdsKM3Response {}))
             }
             // TODO: Check if we need to support other provisioning messages:
-            // (ClearAttestationCertChain, SetWrappedAttestationKey)
+            // (SetWrappedAttestationKey)
             _ => Err(km_err!(Unimplemented, "received command {:?} not supported", cmd_code)),
         }
     }
