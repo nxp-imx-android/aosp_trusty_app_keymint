@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 //! Module used to interact with keymint secure storage data.
+use crate::keybox;
 use crate::keymaster_attributes;
 use alloc::{format, string::String, vec::Vec};
 use kmr_common::{
@@ -135,6 +136,15 @@ fn write_protobuf_to_attestation_key_file(
         km_err!(SecureHwCommunicationFailed, "failed to provision attestation key file: {:?}", e)
     })?;
     Ok(())
+}
+
+/// Unwraps a keybox wrapped key and uses it to provision the key on the device.
+pub(crate) fn set_wrapped_attestation_key(
+    algorithm: SigningAlgorithm,
+    key_data: &[u8],
+) -> Result<(), Error> {
+    let unwrapped_key = keybox::keybox_unwrap(key_data)?;
+    provision_attestation_key_file(algorithm, &unwrapped_key)
 }
 
 /// Tries to read the file containing the attestation key and certificates and only replaces the key

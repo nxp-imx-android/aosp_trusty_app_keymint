@@ -17,8 +17,10 @@
 //! This library implements the functionality used by the KeyMint Trusty
 //! application.
 
+mod ffi_bindings;
 mod ipc_manager;
 mod key_wrapper;
+mod keybox;
 mod keymaster_attributes;
 mod keys;
 mod monotonic_clock;

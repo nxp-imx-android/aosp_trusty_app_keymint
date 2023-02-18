@@ -25,6 +25,7 @@ MODULE_SRCS += \
 MODULE_CRATE_NAME := keymint
 
 MODULE_LIBRARY_DEPS += \
+	trusty/user/base/interface/keybox \
 	trusty/user/base/lib/hwbcc/rust \
 	trusty/user/base/lib/hwkey/rust \
 	trusty/user/base/lib/hwwsk/rust \
@@ -50,5 +51,13 @@ MODULE_RUSTFLAGS += \
 	--cfg 'feature="auto_second_imei"' \
 
 MODULE_RUST_TESTS := true
+
+MODULE_BINDGEN_ALLOW_TYPES := \
+	keybox.* \
+
+MODULE_BINDGEN_ALLOW_VARS := \
+	KEYBOX.* \
+
+MODULE_BINDGEN_SRC_HEADER := $(LOCAL_DIR)/bindings.h
 
 include make/library.mk
