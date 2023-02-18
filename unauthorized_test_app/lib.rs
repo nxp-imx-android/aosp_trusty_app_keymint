@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+// TODO: Remove this after enabling the test.
+#[allow(dead_code)]
 #[cfg(test)]
 mod tests {
     use tipc::{Handle, TipcError};
@@ -23,7 +25,9 @@ mod tests {
 
     /// Port that handles secure world messages
     const KM_SEC_TIPC_SRV_PORT: &str = "com.android.trusty.keymaster.secure";
-    #[test]
+    // TODO: Removing tests for now until we have the Rust implementation as the default keymint;
+    //       put them back once we finish switching to the Rust implementation.
+    // #[test]
     fn test_access_policy_unauthorized() {
         let port2 = CString::try_new(KM_SEC_TIPC_SRV_PORT).unwrap();
         let err1 = Handle::connect(port2.as_c_str()).expect_err(
