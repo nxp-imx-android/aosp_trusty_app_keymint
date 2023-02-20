@@ -47,6 +47,7 @@ endif
 
 MODULE_RUSTFLAGS += \
 	--cfg 'feature="soft_attestation_fallback"' \
+	--cfg 'feature="auto_second_imei"' \
 
 MODULE_RUST_TESTS := true
 

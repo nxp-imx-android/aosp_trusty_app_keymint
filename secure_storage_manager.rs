@@ -259,13 +259,15 @@ pub(crate) fn read_attestation_ids() -> Result<AttestationIdInfo, Error> {
     let manufacturer = attestation_ids_pb.take_manufacturer();
     let model = attestation_ids_pb.take_model();
 
-    // Pixel devices are provisioned with two consecutive IMEI values, in earlier devices only the
-    // first one was stored.  Use the storage imei if it exists, otherwise generate it based on the
-    // first imei.
     let imei2 = if attestation_ids_pb.has_second_imei() {
+        // A second IMEI has been explicitly provisioned, so use that.
         attestation_ids_pb.take_second_imei()
-    } else {
+    } else if cfg!(feature = "auto_second_imei") {
+        // No second IMEI has been explicitly provisioned, but dual-SIM devices typically ship with
+        // two sequential IMEIs, so treat (IMEI+1) as the second IMEI.
         kmr_common::tag::increment_imei(&imei)
+    } else {
+        Vec::new()
     };
 
     Ok(AttestationIdInfo { brand, device, product, serial, imei, imei2, meid, manufacturer, model })
