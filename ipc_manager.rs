@@ -37,8 +37,8 @@ use kmr_wire::keymint::{Algorithm, BootInfo};
 use log::{debug, error, info};
 use system_state::{ProvisioningAllowedFlagValues, SystemState, SystemStateFlag};
 use tipc::{
-    service_dispatcher, Deserialize, Handle, Manager, PortCfg, Serialize, Serializer, Service,
-    TipcError, Uuid,
+    service_dispatcher, ConnectResult, Deserialize, Handle, Manager, MessageResult, PortCfg,
+    Serialize, Serializer, Service, TipcError, Uuid,
 };
 use trusty_std::alloc::FallibleVec;
 use trusty_std::alloc::TryAllocFrom;
@@ -65,7 +65,7 @@ impl Deserialize for KMMessage {
     type Error = TipcError;
     const MAX_SERIALIZED_SIZE: usize = KEYMINT_MAX_BUFFER_LENGTH;
 
-    fn deserialize(bytes: &[u8], _handles: &mut [Option<Handle>]) -> Result<Self, TipcError> {
+    fn deserialize(bytes: &[u8], _handles: &mut [Option<Handle>]) -> tipc::Result<Self> {
         Ok(KMMessage(Vec::try_alloc_from(bytes)?))
     }
 }
@@ -122,9 +122,9 @@ impl<'a> Service for KMService<'a> {
         _port: &PortCfg,
         _handle: &Handle,
         peer: &Uuid,
-    ) -> Result<Option<Self::Connection>, TipcError> {
+    ) -> tipc::Result<ConnectResult<Self::Connection>> {
         info!("Accepted connection from uuid {:?}.", peer);
-        Ok(Some(Context { uuid: peer.clone() }))
+        Ok(ConnectResult::Accept(Context { uuid: peer.clone() }))
     }
 
     fn on_message(
@@ -132,7 +132,7 @@ impl<'a> Service for KMService<'a> {
         _connection: &Self::Connection,
         handle: &Handle,
         msg: Self::Message,
-    ) -> Result<bool, TipcError> {
+    ) -> tipc::Result<MessageResult> {
         debug!("Received a message.");
         let resp_vec = self.handle_message(&msg.0).map_err(|e| match e {
             Error::Hal(_, err_msg) => {
@@ -148,7 +148,7 @@ impl<'a> Service for KMService<'a> {
         for resp in resp_vec {
             handle.send(&KMMessage(resp))?;
         }
-        Ok(true)
+        Ok(MessageResult::MaintainConnection)
     }
 }
 
@@ -389,9 +389,9 @@ impl<'a> Service for KMLegacyService<'a> {
         _port: &PortCfg,
         _handle: &Handle,
         peer: &Uuid,
-    ) -> Result<Option<Self::Connection>, TipcError> {
+    ) -> tipc::Result<ConnectResult<Self::Connection>> {
         info!("Accepted connection from uuid {:?}.", peer);
-        Ok(Some(Context { uuid: peer.clone() }))
+        Ok(ConnectResult::Accept(Context { uuid: peer.clone() }))
     }
 
     fn on_message(
@@ -399,7 +399,7 @@ impl<'a> Service for KMLegacyService<'a> {
         _connection: &Self::Connection,
         handle: &Handle,
         msg: Self::Message,
-    ) -> Result<bool, TipcError> {
+    ) -> tipc::Result<MessageResult> {
         debug!("Received legacy message.");
         let req_msg = legacy::deserialize_trusty_req(&msg.0).map_err(|e| {
             error!("Received error when parsing legacy message: {:?}", e);
@@ -425,7 +425,7 @@ impl<'a> Service for KMLegacyService<'a> {
             }
         };
         handle.send(&KMMessage(resp))?;
-        Ok(true)
+        Ok(MessageResult::MaintainConnection)
     }
 }
 
@@ -487,13 +487,13 @@ impl<'a> Service for KMSecureService<'a> {
         _port: &PortCfg,
         _handle: &Handle,
         peer: &Uuid,
-    ) -> Result<Option<Self::Connection>, TipcError> {
+    ) -> tipc::Result<ConnectResult<Self::Connection>> {
         if !keymint_check_target_access_policy(peer) {
             error!("access policy rejected the uuid: {:?}", peer);
-            return Ok(None);
+            return Ok(ConnectResult::CloseConnection);
         }
         info!("Accepted connection from uuid {:?}.", peer);
-        Ok(Some(Context { uuid: peer.clone() }))
+        Ok(ConnectResult::Accept(Context { uuid: peer.clone() }))
     }
 
     fn on_message(
@@ -501,7 +501,7 @@ impl<'a> Service for KMSecureService<'a> {
         connection: &Self::Connection,
         handle: &Handle,
         msg: Self::Message,
-    ) -> Result<bool, TipcError> {
+    ) -> tipc::Result<MessageResult> {
         debug!("Received secure message.");
 
         let req_msg = legacy::deserialize_trusty_secure_req(&msg.0).map_err(|e| {
@@ -513,7 +513,7 @@ impl<'a> Service for KMSecureService<'a> {
             && !keymint_check_secure_target_access_policy_provisioning(&connection.uuid)
         {
             error!("access policy rejected the uuid: {:?}", &connection.uuid);
-            return Ok(false);
+            return Ok(MessageResult::CloseConnection);
         }
 
         let resp = match self.handle_message(req_msg) {
@@ -537,7 +537,7 @@ impl<'a> Service for KMSecureService<'a> {
             }
         };
         handle.send(&KMMessage(resp))?;
-        Ok(true)
+        Ok(MessageResult::MaintainConnection)
     }
 }
 
@@ -757,7 +757,7 @@ mod tests {
         expect!(km_error_code.is_ok(), "Should be able to call SetAttestatonKeys");
     }
 
-    fn set_attestation_ids_secure() -> Result<(), TipcError> {
+    fn set_attestation_ids_secure() -> tipc::Result<()> {
         let port = CString::try_new(KM_SEC_TIPC_SRV_PORT).unwrap();
         let session = Handle::connect(port.as_c_str()).unwrap();
 
