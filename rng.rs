@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023 The Android Open Source Project
+ * Copyright (C) 2022 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,7 +13,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-// Definitions on this file will be processed during the Rust build to generate
-// a version of it that can be directly accessed from Rust code
-#include <interface/keybox/keybox.h>
-#include <lib/rng/trusty_rng.h>
+//! Trusty implementation of `kmr_common::crypto::Rng`.
+use crate::ffi_bindings::trusty_rng_add_entropy;
+use kmr_common::crypto;
+
+/// [`crypto::Rng`] implementation for Trusty.
+#[derive(Default)]
+pub struct TrustyRng;
+
+impl crypto::Rng for TrustyRng {
+    fn add_entropy(&mut self, data: &[u8]) {
+        trusty_rng_add_entropy(data);
+    }
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        openssl::rand::rand_bytes(dest).unwrap(); // safe: BoringSSL's RAND_bytes() never fails
+    }
+}

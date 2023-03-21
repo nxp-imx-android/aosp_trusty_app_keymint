@@ -28,8 +28,19 @@ mod sys {
 use core::mem;
 use kmr_common::try_to_vec;
 use kmr_wire::legacy::InnerSerialize;
-use log::error;
+use log::{error, warn};
 use tipc::{Deserialize, Handle, Serialize, Serializer, TipcError};
+
+/// Add entropy to Trusty's RNG.
+pub fn trusty_rng_add_entropy(data: &[u8]) {
+    let rc = unsafe {
+        // Safety: `data` is a valid slice
+        sys::trusty_rng_add_entropy(data.as_ptr(), data.len())
+    };
+    if rc != 0 {
+        warn!("trusty_rng_add_entropy() failed, {}", rc)
+    }
+}
 
 pub(crate) const KEYBOX_PORT: &'static [u8; 28] = sys::KEYBOX_PORT;
 

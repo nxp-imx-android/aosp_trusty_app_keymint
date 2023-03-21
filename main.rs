@@ -18,12 +18,12 @@
 
 use keymint::{
     AttestationIds, CertSignInfo, SharedSddManager, TrustyAes, TrustyKeys, TrustyMonotonicClock,
-    TrustyRpc, TrustySecureDeletionSecretManager, TrustyStorageKeyWrapper,
+    TrustyRng, TrustyRpc, TrustySecureDeletionSecretManager, TrustyStorageKeyWrapper,
 };
 use kmr_common::crypto;
 use kmr_crypto_boring::{
     aes::BoringAes, aes_cmac::BoringAesCmac, des::BoringDes, ec::BoringEc, eq::BoringEq,
-    hmac::BoringHmac, rng::BoringRng, rsa::BoringRsa,
+    hmac::BoringHmac, rsa::BoringRsa,
 };
 use kmr_ta::{HardwareInfo, RpcInfo, RpcInfoV3};
 use log::info;
@@ -58,7 +58,7 @@ fn main() {
         supported_num_of_keys_in_csr: kmr_wire::rpc::MINIMUM_SUPPORTED_KEYS_IN_CSR,
     };
 
-    let mut rng = BoringRng::default();
+    let mut rng = TrustyRng::default();
     let clock = TrustyMonotonicClock;
     let aes = TrustyAes::default();
     let imp = crypto::Implementation {
