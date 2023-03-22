@@ -22,7 +22,7 @@ use kmr_common::{
     keyblob::{SecureDeletionData, SecureDeletionSecretManager, SecureDeletionSlot, SlotPurpose},
     km_err, Error,
 };
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use storage::{self as storage_session, OpenMode, Port, SecureFile, Session, Transaction};
 use trusty_sys;
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -558,14 +558,12 @@ impl SecureDeletionSecretManager for TrustySecureDeletionSecretManager {
             current_try += 1;
         };
         let requested_slot = slot.0 as usize;
-        // TODO: Should we also limit access to slot 1? slot 1 should be part of the factory reset
-        //       secret, but c++ code only checked for slot 0.
-        if requested_slot == 0 {
-            // Original debug message from c++ code was "Secure deletion not requested"
-            debug!("Requested deletion of slot 0 which corresponds to factory reset secret.");
+        if requested_slot == 0 || requested_slot == 1 {
+            warn!("Requested slot {} which corresponds to factory reset secret", requested_slot);
             return Err(km_err!(
                 InvalidArgument,
-                "requested slot 0 which does not contain a secret"
+                "requested slot {} which does not contain a per-key secret",
+                requested_slot
             ));
         }
 
@@ -591,18 +589,19 @@ impl SecureDeletionSecretManager for TrustySecureDeletionSecretManager {
 
     fn delete_secret(&mut self, slot: SecureDeletionSlot) -> Result<(), Error> {
         let requested_slot = slot.0 as usize;
-        // TODO: Should we also limit access to slot 1? slot 1 should be part of the factory reset
-        //       secret, but c++ code only checked for slot 0.
-        if requested_slot == 0 {
-            debug!("key_slot == 0, nothing to delete");
+        if requested_slot == 0 || requested_slot == 1 {
+            debug!("key_slot == {}, nothing to delete", requested_slot);
             return Err(km_err!(
                 InvalidArgument,
-                "requested slot 0 which does not contain a secret"
+                "requested slot {} which does not contain a per-key secret",
+                requested_slot
             ));
         }
         let key_slot_start = requested_slot * SECRET_SIZE;
         let key_slot_end = key_slot_start + SECRET_SIZE;
         if key_slot_start < FACTORY_FIRST_SECURE_DELETION_SECRET_POS {
+            // This should be unhittable (the test for slot 0 or 1 above will trigger) but keep
+            // in just in case of future arithmetic errors.
             return Err(km_err!(
                 InvalidArgument,
                 "attempted to delete invalid key slot {}",
