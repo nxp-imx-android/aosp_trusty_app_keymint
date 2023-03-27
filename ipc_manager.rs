@@ -49,6 +49,15 @@ const KM_NS_TIPC_SRV_PORT: &str = "com.android.trusty.keymint";
 const KM_SEC_TIPC_SRV_PORT: &str = "com.android.trusty.keymaster.secure";
 /// Port that handles legacy style keymint/keymaster messages
 const KM_NS_LEGACY_TIPC_SRV_PORT: &str = "com.android.trusty.keymaster";
+/// Port count for this TA (as above).
+const PORT_COUNT: usize = 3;
+/// Maximum connection count for this TA:
+/// - Gatekeeper
+/// - Fingerprint
+/// - FaceAuth
+/// - Widevine
+/// - Non-secure world.
+const MAX_CONNECTION_COUNT: usize = 5;
 
 const KEYMINT_MAX_BUFFER_LENGTH: usize = 4096;
 const KEYMINT_MAX_MESSAGE_CONTENT_SIZE: usize = 4000;
@@ -605,8 +614,9 @@ pub fn handle_port_connections<'a>(
         km_err!(UnknownError, "could not add secure service to dispatcher: {:?}", e)
     })?;
     let buffer = [0u8; 4096];
-    let manager = Manager::<_, _, 3, 4>::new_with_dispatcher(dispatcher, buffer)
-        .map_err(|e| km_err!(UnknownError, "could not create service manager: {:?}", e))?;
+    let manager =
+        Manager::<_, _, PORT_COUNT, MAX_CONNECTION_COUNT>::new_with_dispatcher(dispatcher, buffer)
+            .map_err(|e| km_err!(UnknownError, "could not create service manager: {:?}", e))?;
     manager
         .run_event_loop()
         .map_err(|e| km_err!(UnknownError, "service manager received error: {:?}", e))?;
