@@ -28,14 +28,14 @@ const NO_SDD_SLOT_IDX: u32 = 0;
 
 /// Legacy key handler that detects and converts `EncryptedKeyBlob` instances from
 /// the previous Trusty implementation of KeyMint/Keymaster.
-pub struct TrustyLegacyKeyBlobHandler<'a> {
-    pub aes: &'a dyn crypto::Aes,
-    pub hkdf: &'a dyn crypto::Hkdf,
-    pub sdd_mgr: Option<&'a mut dyn SecureDeletionSecretManager>,
-    pub keys: &'a dyn device::RetrieveKeyMaterial,
+pub struct TrustyLegacyKeyBlobHandler {
+    pub aes: Box<dyn crypto::Aes>,
+    pub hkdf: Box<dyn crypto::Hkdf>,
+    pub sdd_mgr: Option<Box<dyn SecureDeletionSecretManager>>,
+    pub keys: Box<dyn device::RetrieveKeyMaterial>,
 }
 
-impl<'a> TrustyLegacyKeyBlobHandler<'a> {
+impl TrustyLegacyKeyBlobHandler {
     /// Build the derivation information needed for KEK derivation that is compatible with the
     /// previous C++ implementation.
     fn build_derivation_info(
@@ -302,7 +302,7 @@ impl<'a> TrustyLegacyKeyBlobHandler<'a> {
     }
 }
 
-impl<'a> keyblob::LegacyKeyHandler for TrustyLegacyKeyBlobHandler<'a> {
+impl keyblob::LegacyKeyHandler for TrustyLegacyKeyBlobHandler {
     fn convert_legacy_key(
         &self,
         keyblob: &[u8],

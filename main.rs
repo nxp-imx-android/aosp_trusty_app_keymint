@@ -58,45 +58,40 @@ fn main() {
         supported_num_of_keys_in_csr: kmr_wire::rpc::MINIMUM_SUPPORTED_KEYS_IN_CSR,
     };
 
-    let mut rng = TrustyRng::default();
+    let rng = TrustyRng::default();
     let clock = TrustyMonotonicClock;
     let aes = TrustyAes::default();
     let imp = crypto::Implementation {
-        rng: &mut rng,
-        clock: Some(&clock),
-        compare: &BoringEq,
-        aes: &aes,
-        des: &BoringDes,
-        hmac: &BoringHmac,
-        rsa: &BoringRsa::default(),
-        ec: &BoringEc::default(),
-        ckdf: &BoringAesCmac,
-        hkdf: &BoringHmac,
+        rng: Box::new(rng),
+        clock: Some(Box::new(clock)),
+        compare: Box::new(BoringEq),
+        aes: Box::new(aes),
+        des: Box::new(BoringDes),
+        hmac: Box::new(BoringHmac),
+        rsa: Box::<BoringRsa>::default(),
+        ec: Box::<BoringEc>::default(),
+        ckdf: Box::new(BoringAesCmac),
+        hkdf: Box::new(BoringHmac),
     };
-    let sign_info = CertSignInfo;
-    let mut att_ids = AttestationIds;
-    let trusty_keys = TrustyKeys;
-    let key_wrapper = TrustyStorageKeyWrapper;
     let sdd_mgr = TrustySecureDeletionSecretManager::new();
-    let mut shared_sdd_mgr = SharedSddManager::new(sdd_mgr);
-    let mut legacy_sdd_mgr = shared_sdd_mgr.clone();
-    let mut legacy_key = keymint::TrustyLegacyKeyBlobHandler {
-        aes: &BoringAes,
-        hkdf: &BoringHmac,
-        sdd_mgr: Some(&mut legacy_sdd_mgr),
-        keys: &trusty_keys,
+    let shared_sdd_mgr = SharedSddManager::new(sdd_mgr);
+    let legacy_sdd_mgr = shared_sdd_mgr.clone();
+    let legacy_key = keymint::TrustyLegacyKeyBlobHandler {
+        aes: Box::new(BoringAes),
+        hkdf: Box::new(BoringHmac),
+        sdd_mgr: Some(Box::new(legacy_sdd_mgr)),
+        keys: Box::new(TrustyKeys),
     };
-    let trusty_rpc = TrustyRpc;
     let dev = kmr_ta::device::Implementation {
-        keys: &trusty_keys,
-        sign_info: &sign_info,
-        attest_ids: Some(&mut att_ids),
-        sdd_mgr: Some(&mut shared_sdd_mgr),
-        bootloader: &kmr_ta::device::BootloaderDone,
-        sk_wrapper: Some(&key_wrapper),
-        tup: &kmr_ta::device::TrustedPresenceUnsupported,
-        legacy_key: Some(&mut legacy_key),
-        rpc: &trusty_rpc,
+        keys: Box::new(TrustyKeys),
+        sign_info: Box::new(CertSignInfo),
+        attest_ids: Some(Box::new(AttestationIds)),
+        sdd_mgr: Some(Box::new(shared_sdd_mgr)),
+        bootloader: Box::new(kmr_ta::device::BootloaderDone),
+        sk_wrapper: Some(Box::new(TrustyStorageKeyWrapper)),
+        tup: Box::new(kmr_ta::device::TrustedPresenceUnsupported),
+        legacy_key: Some(Box::new(legacy_key)),
+        rpc: Box::new(TrustyRpc),
     };
     keymint::handle_port_connections(hw_info, RpcInfo::V3(rpc_info_v3), imp, dev)
         .expect("handle_port_connections returned an error");

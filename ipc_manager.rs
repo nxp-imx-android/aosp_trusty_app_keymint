@@ -104,13 +104,13 @@ fn keymaster_algorithm_to_signing_algorithm(
 }
 
 /// TIPC service implementation for communication with the HAL service in Android.
-struct KMService<'a> {
-    km_ta: Rc<RefCell<KeyMintTa<'a>>>,
+struct KMService {
+    km_ta: Rc<RefCell<KeyMintTa>>,
 }
 
-impl<'a> KMService<'a> {
+impl KMService {
     /// Create a service implementation.
-    fn new(km_ta: Rc<RefCell<KeyMintTa<'a>>>) -> Self {
+    fn new(km_ta: Rc<RefCell<KeyMintTa>>) -> Self {
         KMService { km_ta }
     }
 
@@ -122,7 +122,7 @@ impl<'a> KMService<'a> {
     }
 }
 
-impl<'a> Service for KMService<'a> {
+impl Service for KMService {
     type Connection = Context;
     type Message = KMMessage;
 
@@ -203,15 +203,15 @@ fn provisioning_allowed_at_boot() -> Result<bool, Error> {
 
 /// TIPC service implementation for communication with components outside Trusty (notably the
 /// bootloader and provisioning tools), using legacy (C++) message formats.
-struct KMLegacyService<'a> {
-    km_ta: Rc<RefCell<KeyMintTa<'a>>>,
+struct KMLegacyService {
+    km_ta: Rc<RefCell<KeyMintTa>>,
     boot_info: RefCell<Option<BootInfo>>,
     boot_patchlevel: RefCell<Option<u32>>,
 }
 
-impl<'a> KMLegacyService<'a> {
+impl KMLegacyService {
     /// Create a service implementation.
-    fn new(km_ta: Rc<RefCell<KeyMintTa<'a>>>) -> Self {
+    fn new(km_ta: Rc<RefCell<KeyMintTa>>) -> Self {
         KMLegacyService {
             km_ta,
             boot_info: RefCell::new(None),
@@ -389,7 +389,7 @@ impl<'a> KMLegacyService<'a> {
     }
 }
 
-impl<'a> Service for KMLegacyService<'a> {
+impl Service for KMLegacyService {
     type Connection = Context;
     type Message = KMMessage;
 
@@ -440,13 +440,13 @@ impl<'a> Service for KMLegacyService<'a> {
 
 /// TIPC service implementation for secure communication with other components in Trusty
 /// (e.g. Gatekeeper, ConfirmationUI), using legacy (C++) message formats.
-struct KMSecureService<'a> {
-    km_ta: Rc<RefCell<KeyMintTa<'a>>>,
+struct KMSecureService {
+    km_ta: Rc<RefCell<KeyMintTa>>,
 }
 
-impl<'a> KMSecureService<'a> {
+impl KMSecureService {
     /// Create a service implementation.
-    fn new(km_ta: Rc<RefCell<KeyMintTa<'a>>>) -> Self {
+    fn new(km_ta: Rc<RefCell<KeyMintTa>>) -> Self {
         KMSecureService { km_ta }
     }
     fn handle_message(
@@ -487,7 +487,7 @@ impl<'a> KMSecureService<'a> {
     }
 }
 
-impl<'a> Service for KMSecureService<'a> {
+impl Service for KMSecureService {
     type Connection = Context;
     type Message = KMMessage;
 
@@ -551,19 +551,19 @@ impl<'a> Service for KMSecureService<'a> {
 }
 
 service_dispatcher! {
-    enum KMServiceDispatcher<'a> {
-        KMService<'a>,
-        KMSecureService<'a>,
-        KMLegacyService<'a>,
+    enum KMServiceDispatcher {
+        KMService,
+        KMSecureService,
+        KMLegacyService,
     }
 }
 
 /// Main loop handler for the KeyMint TA.
-pub fn handle_port_connections<'a>(
+pub fn handle_port_connections(
     hw_info: HardwareInfo,
     rpc_info: RpcInfo,
-    imp: crypto::Implementation<'a>,
-    dev: kmr_ta::device::Implementation<'a>,
+    imp: crypto::Implementation,
+    dev: kmr_ta::device::Implementation,
 ) -> Result<(), Error> {
     let km_ta = Rc::new(RefCell::new(KeyMintTa::new(hw_info, rpc_info, imp, dev)));
     let ns_service = KMService::new(Rc::clone(&km_ta));
