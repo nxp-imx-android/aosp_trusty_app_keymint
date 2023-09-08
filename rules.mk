@@ -32,8 +32,8 @@ MODULE_LIBRARY_DEPS += \
 	trusty/user/base/lib/keymint-rust/boringssl \
 	trusty/user/base/lib/keymint-rust/common \
 	trusty/user/base/lib/keymint-rust/ta \
-	$(call FIND_CRATE,log) \
-	$(call FIND_CRATE,protobuf) \
+	trusty/user/base/lib/log-rust \
+	trusty/user/base/lib/protobuf-rust \
 	trusty/user/base/lib/storage/rust \
 	trusty/user/base/lib/tipc/rust \
 	trusty/user/base/lib/system_state/rust \
