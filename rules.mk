@@ -33,7 +33,7 @@ MODULE_LIBRARY_DEPS += \
 	trusty/user/base/lib/keymint-rust/common \
 	trusty/user/base/lib/keymint-rust/ta \
 	$(call FIND_CRATE,log) \
-	$(call FIND_CRATE,protobuf) \
+	$(call FIND_CRATE,protobuf)/2.27.1 \
 	trusty/user/base/lib/storage/rust \
 	trusty/user/base/lib/tipc/rust \
 	trusty/user/base/lib/system_state/rust \
