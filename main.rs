@@ -23,7 +23,7 @@ use keymint::{
 use kmr_common::crypto;
 use kmr_crypto_boring::{
     aes::BoringAes, aes_cmac::BoringAesCmac, des::BoringDes, ec::BoringEc, eq::BoringEq,
-    hmac::BoringHmac, rsa::BoringRsa,
+    hmac::BoringHmac, rsa::BoringRsa, sha256::BoringSha256,
 };
 use kmr_ta::{HardwareInfo, RpcInfo, RpcInfoV3};
 use log::info;
@@ -72,6 +72,7 @@ fn main() {
         ec: Box::<BoringEc>::default(),
         ckdf: Box::new(BoringAesCmac),
         hkdf: Box::new(BoringHmac),
+        sha256: Box::new(BoringSha256),
     };
     let sdd_mgr = TrustySecureDeletionSecretManager::new();
     let shared_sdd_mgr = SharedSddManager::new(sdd_mgr);
