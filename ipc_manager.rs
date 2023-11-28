@@ -40,7 +40,6 @@ use tipc::{
     service_dispatcher, ConnectResult, Deserialize, Handle, Manager, MessageResult, PortCfg,
     Serialize, Serializer, Service, TipcError, Uuid,
 };
-use trusty_std::alloc::FallibleVec;
 use trusty_std::alloc::TryAllocFrom;
 
 /// Port that handles new style keymint messages from non-secure world
