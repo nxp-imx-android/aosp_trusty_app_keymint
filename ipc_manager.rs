@@ -12,6 +12,9 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * Copyright 2024 NXP
+ *
  */
 //! Trusty handler for IPC connections. It handles both secure and non-secure world ports.
 use crate::secure_storage_manager;
@@ -29,6 +32,7 @@ use kmr_common::{
         SetAttestationIdsResponse, SetAttestationKeyResponse, SetBootParamsResponse,
         SetWrappedAttestationKeyResponse, TrustyMessageId, TrustyPerformOpReq, TrustyPerformOpRsp,
         TrustyPerformSecureOpReq, TrustyPerformSecureOpRsp,
+        GetMppubkResponse,
     },
     Error,
 };
@@ -42,6 +46,9 @@ use tipc::{
 };
 use trusty_std::alloc::FallibleVec;
 use trusty_std::alloc::TryAllocFrom;
+
+use core::ffi::CStr;
+use hwkey::Hwkey;
 
 /// Port that handles new style keymint messages from non-secure world
 const KM_NS_TIPC_SRV_PORT: &str = "com.android.trusty.keymint";
@@ -61,6 +68,9 @@ const MAX_CONNECTION_COUNT: usize = 5;
 
 const KEYMINT_MAX_BUFFER_LENGTH: usize = 4096;
 const KEYMINT_MAX_MESSAGE_CONTENT_SIZE: usize = 4000;
+
+const TRUSTY_KM_MPPUBK_SIZE: usize = 64;
+const KM_MPPUBK_SLOT_ID: &'static [u8] = b"com.android.trusty.keymaster.mppubk\0";
 
 /// TIPC connection context information.
 struct Context {
@@ -384,6 +394,18 @@ impl KMLegacyService {
                     Some(&req.second_imei),
                 )?;
                 Ok(TrustyPerformOpRsp::SetAttestationIdsKM3(SetAttestationIdsKM3Response {}))
+            }
+            TrustyPerformOpReq::GetMppubk(_req) => {
+                let hwkey_session = Hwkey::open().map_err(|e| {
+                    km_err!(SecureHwCommunicationFailed, "failed to connect to HwKey: {:?}", e)
+                })?;
+                let mut key_buffer = [0; TRUSTY_KM_MPPUBK_SIZE];
+                let keyslot = CStr::from_bytes_with_nul(KM_MPPUBK_SLOT_ID)
+                    .expect("should never happen, KM_MPPUBK_SLOT_ID follows from_bytes_with_nul rules");
+                let _mppubk = hwkey_session
+                    .get_keyslot_data(keyslot, &mut key_buffer)
+                    .map_err(|e| km_err!(SecureHwCommunicationFailed, "failed to retrieve mppubk: {:?}", e))?;
+                Ok(TrustyPerformOpRsp::GetMppubk(GetMppubkResponse{key: key_buffer.into()}))
             }
         }
     }
