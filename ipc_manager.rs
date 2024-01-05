@@ -32,7 +32,7 @@ use kmr_common::{
         SetAttestationIdsResponse, SetAttestationKeyResponse, SetBootParamsResponse,
         SetWrappedAttestationKeyResponse, TrustyMessageId, TrustyPerformOpReq, TrustyPerformOpRsp,
         TrustyPerformSecureOpReq, TrustyPerformSecureOpRsp,
-        GetMppubkResponse,
+        GetMppubkResponse, SetAttestationKeyEncResponse, AppendAttestationCertChainEncResponse,
     },
     Error,
 };
@@ -211,6 +211,11 @@ fn provisioning_allowed_at_boot() -> Result<bool, Error> {
     })
 }
 
+struct AttestationEncBlobHeader {
+    magic: [u8; 4],
+    len: u32
+}
+
 /// TIPC service implementation for communication with components outside Trusty (notably the
 /// bootloader and provisioning tools), using legacy (C++) message formats.
 struct KMLegacyService {
@@ -263,6 +268,34 @@ impl KMLegacyService {
             }
             _ => info!("not all boot information available yet"),
         }
+    }
+
+    /// Decrypt wrapped key/cert with MPPUBK
+    fn decrypt_with_mp(&self, in_data: &Vec<u8>,
+                       out_data: &mut Vec<u8>) -> Result<(), Error> {
+        let header_size = mem::size_of::<AttestationEncBlobHeader>();
+        let header =
+            unsafe { &*(in_data.as_ptr() as *const AttestationEncBlobHeader) };
+        // Magic "!AT"
+        let magic = [0x21, 0x41, 0x54, 0];
+        if header.magic != magic {
+            return Err(km_err!(SecureHwCommunicationFailed, "magic is not correct!"));
+        }
+
+        let encrypted_data = in_data[header_size..].to_vec();
+
+        let mut raw_data: Vec<u8> = vec![0; encrypted_data.len() as usize];
+        let hwkey_session = Hwkey::open().map_err(|e| {
+            km_err!(SecureHwCommunicationFailed, "failed to connect to HwKey: {:?}", e)
+        })?;
+        let _key = hwkey_session
+            .mp_decrypt(&encrypted_data, &mut raw_data)
+            .map_err(|e| km_err!(SecureHwCommunicationFailed, "failed to decrypt encrypted data: {:?}", e))?;
+
+        out_data.resize(header.len as usize, 0);
+        // Only copy size 'header.len' to skip possible padding
+        out_data[..header.len as usize].copy_from_slice(&raw_data[..header.len as usize]);
+        Ok(())
     }
 
     /// Process an incoming request message, returning the corresponding response.
@@ -406,6 +439,22 @@ impl KMLegacyService {
                     .get_keyslot_data(keyslot, &mut key_buffer)
                     .map_err(|e| km_err!(SecureHwCommunicationFailed, "failed to retrieve mppubk: {:?}", e))?;
                 Ok(TrustyPerformOpRsp::GetMppubk(GetMppubkResponse{key: key_buffer.into()}))
+            }
+            TrustyPerformOpReq::SetAttestationKeyEnc(req) => {
+                let algorithm = keymaster_algorithm_to_signing_algorithm(req.algorithm)?;
+                let mut raw_key_data: Vec<u8> = vec![];
+                self.decrypt_with_mp(&req.key_data, &mut raw_key_data)?;
+                secure_storage_manager::provision_attestation_key_file(algorithm, &raw_key_data)?;
+                Ok(TrustyPerformOpRsp::SetAttestationKeyEnc(SetAttestationKeyEncResponse {}))
+            }
+            TrustyPerformOpReq::AppendAttestationCertChainEnc(req) => {
+                let algorithm = keymaster_algorithm_to_signing_algorithm(req.algorithm)?;
+                let mut raw_cert_data: Vec<u8> = vec![];
+                self.decrypt_with_mp(&req.cert_data, &mut raw_cert_data)?;
+                secure_storage_manager::append_attestation_cert_chain(algorithm, &raw_cert_data)?;
+                Ok(TrustyPerformOpRsp::AppendAttestationCertChainEnc(
+                    AppendAttestationCertChainEncResponse {},
+                ))
             }
         }
     }
