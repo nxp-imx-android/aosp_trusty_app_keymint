@@ -33,6 +33,7 @@ use kmr_common::{
         SetWrappedAttestationKeyResponse, TrustyMessageId, TrustyPerformOpReq, TrustyPerformOpRsp,
         TrustyPerformSecureOpReq, TrustyPerformSecureOpRsp,
         GetMppubkResponse, SetAttestationKeyEncResponse, AppendAttestationCertChainEncResponse,
+        VerifySecureUnlockResponse,
     },
     Error,
 };
@@ -454,6 +455,14 @@ impl KMLegacyService {
                 Ok(TrustyPerformOpRsp::AppendAttestationCertChainEnc(
                     AppendAttestationCertChainEncResponse {},
                 ))
+            }
+            TrustyPerformOpReq::VerifySecureUnlock(req) => {
+                let mut raw_serial_num: Vec<u8> = vec![];
+                self.decrypt_with_mp(&req.credential, &mut raw_serial_num)?;
+                if raw_serial_num != req.serial_num {
+                    return Err(km_err!(SecureHwCommunicationFailed, "Wrong credential!"));
+                }
+                Ok(TrustyPerformOpRsp::VerifySecureUnlock(VerifySecureUnlockResponse {}))
             }
         }
     }
