@@ -12,13 +12,16 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
+ * Copyright 2024 NXP
+ *
  */
 //! The library implementing the generic access policy for Keymint Rust.
 //! This is a replication of `keymaster_generic_access_policy`.
 
 use tipc::Uuid;
 
-const ACCESSIBLE_UUIDS: [Uuid; 4] = [
+const ACCESSIBLE_UUIDS: [Uuid; 5] = [
     /* gatekeeper uuid */
     Uuid::new(0x38ba0cdc, 0xdf0e, 0x11e4, [0x98, 0x69, 0x23, 0x3f, 0xb6, 0xae, 0x47, 0x95]),
     /* confirmation UI uuid */
@@ -27,6 +30,8 @@ const ACCESSIBLE_UUIDS: [Uuid; 4] = [
     Uuid::new(0xf3ba7629, 0xe8cc, 0x44a0, [0x88, 0x4d, 0xf9, 0x16, 0xf7, 0x03, 0xa2, 0x00]),
     /* keymint unit test uuid */
     Uuid::new(0xd322eec9, 0x6d03, 0x49fa, [0x82, 0x1c, 0x1c, 0xcd, 0x27, 0x05, 0x71, 0x9c]),
+    /* widevine uuid */
+    Uuid::new(0x08d3ed40, 0xbde2, 0x448c, [0xa9, 0x1d, 0x75, 0xf1, 0x98, 0x9c, 0x57, 0xef]),
 ];
 
 pub fn keymint_check_target_access_policy(uuid: &Uuid) -> bool {
