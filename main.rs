@@ -18,8 +18,12 @@
 
 use keymint::{
     AttestationIds, CertSignInfo, SharedSddManager, TrustyAes, TrustyKeys, TrustyMonotonicClock,
-    TrustyRng, TrustyRpc, TrustySecureDeletionSecretManager, TrustyStorageKeyWrapper,
+    TrustyRng, TrustyRpc, TrustySecureDeletionSecretManager,
 };
+
+#[cfg(feature = "with_hwwsk_support")]
+use keymint::TrustyStorageKeyWrapper;
+
 use kmr_common::crypto;
 use kmr_crypto_boring::{
     aes::BoringAes, aes_cmac::BoringAesCmac, des::BoringDes, ec::BoringEc, eq::BoringEq,
@@ -88,7 +92,10 @@ fn main() {
         attest_ids: Some(Box::new(AttestationIds)),
         sdd_mgr: Some(Box::new(shared_sdd_mgr)),
         bootloader: Box::new(kmr_ta::device::BootloaderDone),
+        #[cfg(feature = "with_hwwsk_support")]
         sk_wrapper: Some(Box::new(TrustyStorageKeyWrapper)),
+        #[cfg(not(feature = "with_hwwsk_support"))]
+        sk_wrapper: None,
         tup: Box::new(kmr_ta::device::TrustedPresenceUnsupported),
         legacy_key: Some(Box::new(legacy_key)),
         rpc: Box::new(TrustyRpc),

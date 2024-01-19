@@ -201,7 +201,13 @@ impl TrustyLegacyKeyBlobHandler {
                 // Special case: an AES key might be a storage key.
                 if get_bool_tag_value!(chars, StorageKey)? {
                     // Storage key is opaque data.
-                    crypto::KeyMaterial::Aes(OpaqueOr::Opaque(OpaqueKeyMaterial(raw_key_material)))
+                    if cfg!(feature = "with_hwwsk_support") {
+                        crypto::KeyMaterial::Aes(OpaqueOr::Opaque(OpaqueKeyMaterial(
+                            raw_key_material,
+                        )))
+                    } else {
+                        return Err(km_err!(InvalidKeyBlob, "storage key is not supported!"));
+                    }
                 } else {
                     // Normal case: expect explicit AES key material.
                     crypto::KeyMaterial::Aes(crypto::aes::Key::new(raw_key_material)?.into())

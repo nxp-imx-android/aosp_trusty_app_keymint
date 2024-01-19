@@ -50,6 +50,12 @@ MODULE_RUSTFLAGS += \
 	--cfg 'feature="soft_attestation_fallback"' \
 	--cfg 'feature="auto_second_imei"' \
 
+TRUSTY_KM_WITH_HWWSK_SUPPORT ?= true
+ifeq (true,$(call TOBOOL,$(TRUSTY_KM_WITH_HWWSK_SUPPORT)))
+MODULE_RUSTFLAGS += \
+	--cfg 'feature="with_hwwsk_support"'
+endif
+
 MODULE_RUST_TESTS := true
 
 MODULE_BINDGEN_ALLOW_TYPES := \

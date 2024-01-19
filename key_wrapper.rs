@@ -136,7 +136,11 @@ impl Aes for TrustyAes {
             // For normal (non-storage) keys, pass on to BoringSSL implementation.
             return self.0.generate_key(rng, variant, params);
         }
-        self.create_storage_key(None, params)
+        if cfg!(feature = "with_hwwsk_support") {
+            self.create_storage_key(None, params)
+        } else {
+            Err(km_err!(UnsupportedTag, "storage key is not supported!"))
+        }
     }
 
     fn import_key(
@@ -149,9 +153,13 @@ impl Aes for TrustyAes {
             return self.0.import_key(data, params);
         }
 
-        let aes_key = aes::Key::new_from(data)?;
-        let key_size = aes_key.size();
-        Ok((self.create_storage_key(Some(aes_key), params)?, key_size))
+        if cfg!(feature = "with_hwwsk_support") {
+            let aes_key = aes::Key::new_from(data)?;
+            let key_size = aes_key.size();
+            Ok((self.create_storage_key(Some(aes_key), params)?, key_size))
+        } else {
+            Err(km_err!(UnsupportedTag, "storage key is not supported!"))
+        }
     }
 
     fn begin(
