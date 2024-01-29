@@ -40,4 +40,10 @@ MODULE_LIBRARY_DEPS += \
 	trusty/user/base/lib/trusty-log \
 	trusty/user/base/lib/trusty-std \
 
+TRUSTY_KM_WITH_HWWSK_SUPPORT ?= true
+ifeq (true,$(call TOBOOL,$(TRUSTY_KM_WITH_HWWSK_SUPPORT)))
+MODULE_RUSTFLAGS += \
+	--cfg 'feature="with_hwwsk_support"'
+endif
+
 include make/trusted_app.mk
