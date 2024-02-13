@@ -631,7 +631,7 @@ mod tests {
         keymint::{ErrorCode, VerifiedBootState},
         legacy::{self, InnerSerialize},
     };
-    use test::expect;
+    use test::{expect, skip};
     use trusty_std::ffi::{CString, FallibleCString};
 
     const CONFIGURE_BOOT_PATCHLEVEL_CMD: u32 =
@@ -640,11 +640,12 @@ mod tests {
     const SET_ATTESTATION_IDS_CMD: u32 = legacy::TrustyKeymasterOperation::SetAttestationIds as u32;
     const SET_ATTESTATION_KEY_CMD: u32 = legacy::TrustyKeymasterOperation::SetAttestationKey as u32;
 
-    // TODO: Removing tests for now until we have the Rust implementation as the default keymint;
-    //       put them back once we finish switching to the Rust implementation.
-
-    //#[test]
+    #[test]
     fn connection_test() {
+        if !cfg!(kmr_enabled) {
+            skip!("KeyMint Rust TA not configured");
+        }
+
         // Only doing a connection test because the auth token key is not available for unittests.
         let port1 = CString::try_new(KM_NS_TIPC_SRV_PORT).unwrap();
         let _session1 = Handle::connect(port1.as_c_str()).unwrap();
@@ -654,8 +655,12 @@ mod tests {
         let _session3 = Handle::connect(port3.as_c_str()).unwrap();
     }
 
-    // #[test]
+    #[test]
     fn test_access_policy() {
+        if !cfg!(kmr_enabled) {
+            skip!("KeyMint Rust TA not configured");
+        }
+
         // Test whether the access policy is in action.
         // Keymint unit test app should be able to connect to the KM secure service.
         let port = CString::try_new(KM_SEC_TIPC_SRV_PORT).unwrap();
@@ -750,8 +755,12 @@ mod tests {
         Ok(req)
     }
 
-    //#[test]
+    #[test]
     fn set_attestation_keys_certs() {
+        if !cfg!(kmr_enabled) {
+            skip!("KeyMint Rust TA not configured");
+        }
+
         let port = CString::try_new(KM_NS_LEGACY_TIPC_SRV_PORT).unwrap();
         let session = Handle::connect(port.as_c_str()).unwrap();
 
@@ -798,8 +807,12 @@ mod tests {
         session.recv(buf)
     }
 
-    //#[test]
+    #[test]
     fn set_attestation_ids() {
+        if !cfg!(kmr_enabled) {
+            skip!("KeyMint Rust TA not configured");
+        }
+
         let port = CString::try_new(KM_NS_LEGACY_TIPC_SRV_PORT).unwrap();
         let session = Handle::connect(port.as_c_str()).unwrap();
 
@@ -833,8 +846,15 @@ mod tests {
         expect!(km_error_code.is_ok(), "Should be able to call SetAttestationIds");
     }
 
-    //#[test]
+    // The following tests are all skipped because they try to SetBootParams more than once
+    // which isn't allowed.  However, the code is preserved to allow for future manual testing.
+
+    #[test]
     fn send_setbootparams_configure_setbootparams_configure() {
+        if true {
+            skip!("SetBootParams cannot be performed more than once");
+        }
+
         let port = CString::try_new(KM_NS_LEGACY_TIPC_SRV_PORT).unwrap();
         let session = Handle::connect(port.as_c_str()).unwrap();
 
@@ -886,13 +906,12 @@ mod tests {
         );
     }
 
-    // Not running the next 3 tests because we never restart the server, which means that
-    // the server remembers the commands from the previous test. Also not using #[ignore] because
-    // it doesn't seem to be supported yet.
-
-    //#[test]
-    #[allow(dead_code)]
+    #[test]
     fn send_configure_configure_setbootparams_setbootparams() {
+        if true {
+            skip!("SetBootParams cannot be performed more than once");
+        }
+
         let port = CString::try_new(KM_NS_LEGACY_TIPC_SRV_PORT).unwrap();
         let session = Handle::connect(port.as_c_str()).unwrap();
 
@@ -944,9 +963,12 @@ mod tests {
         expect!(km_error_code.is_err(), "Shouldn't be able to call SetBootParams a second time");
     }
 
-    //#[test]
-    #[allow(dead_code)]
+    #[test]
     fn send_setbootparams_setbootparams_configure_configure() {
+        if true {
+            skip!("SetBootParams cannot be performed more than once");
+        }
+
         let port = CString::try_new(KM_NS_LEGACY_TIPC_SRV_PORT).unwrap();
         let session = Handle::connect(port.as_c_str()).unwrap();
 
@@ -998,9 +1020,12 @@ mod tests {
         );
     }
 
-    //#[test]
-    #[allow(dead_code)]
+    #[test]
     fn send_configure_setbootparams_setbootparams_configure() {
+        if true {
+            skip!("SetBootParams cannot be performed more than once");
+        }
+
         let port = CString::try_new(KM_NS_LEGACY_TIPC_SRV_PORT).unwrap();
         let session = Handle::connect(port.as_c_str()).unwrap();
 
