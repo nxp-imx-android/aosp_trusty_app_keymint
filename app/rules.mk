@@ -31,9 +31,9 @@ MODULE_LIBRARY_DEPS += \
 	trusty/user/base/lib/keymint-rust/common \
 	trusty/user/base/lib/keymint-rust/ta \
 	trusty/user/base/lib/keymint-rust/wire \
-	$(call FIND_CRATE,libc) \
+	trusty/user/base/lib/libc-rust \
 	trusty/user/base/lib/libstd-rust \
-	$(call FIND_CRATE,log) \
+	trusty/user/base/lib/log-rust \
 	trusty/user/base/lib/tipc/rust \
 	trusty/user/base/lib/trusty-log \
 	trusty/user/base/lib/trusty-std \
