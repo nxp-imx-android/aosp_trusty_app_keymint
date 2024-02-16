@@ -17,6 +17,8 @@ LOCAL_DIR := $(GET_LOCAL_DIR)
 
 MODULE := $(LOCAL_DIR)
 
+TRUSTY_APP_NAME := keymint
+
 MANIFEST := $(LOCAL_DIR)/manifest.json
 
 MODULE_SRCS += \
