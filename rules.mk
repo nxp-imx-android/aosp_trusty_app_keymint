@@ -52,6 +52,12 @@ MODULE_RUSTFLAGS += \
 
 MODULE_RUST_TESTS := true
 
+# The port tests are built and installed regardless of whether the KeyMint Rust TA
+# is enabled, so set a config value to allow tests that involve the TA to be skipped.
+ifeq (rust,$(TRUSTY_KEYMINT_IMPL))
+     MODULE_RUSTFLAGS += --cfg 'kmr_enabled'
+endif
+
 MODULE_BINDGEN_ALLOW_TYPES := \
 	keybox.* \
 
