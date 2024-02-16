@@ -17,9 +17,13 @@
 //! Main entrypoint for KeyMint/Rust trusted application (TA) on Trusty.
 
 use keymint::{
-    AttestationIds, CertSignInfo, SharedSddManager, TrustyAes, TrustyKeys, TrustyMonotonicClock,
-    TrustyRng, TrustyRpc, TrustySecureDeletionSecretManager, TrustyStorageKeyWrapper,
+    AttestationIds, CertSignInfo, SharedSddManager, TrustyKeys, TrustyMonotonicClock, TrustyRng,
+    TrustyRpc, TrustySecureDeletionSecretManager,
 };
+
+#[cfg(feature = "with_hwwsk_support")]
+use keymint::{TrustyAes, TrustyStorageKeyWrapper};
+
 use kmr_common::crypto;
 use kmr_crypto_boring::{
     aes::BoringAes, aes_cmac::BoringAesCmac, des::BoringDes, ec::BoringEc, eq::BoringEq,
@@ -60,7 +64,10 @@ fn main() {
 
     let rng = TrustyRng::default();
     let clock = TrustyMonotonicClock;
+    #[cfg(feature = "with_hwwsk_support")]
     let aes = TrustyAes::default();
+    #[cfg(not(feature = "with_hwwsk_support"))]
+    let aes = BoringAes;
     let imp = crypto::Implementation {
         rng: Box::new(rng),
         clock: Some(Box::new(clock)),
@@ -89,7 +96,10 @@ fn main() {
         attest_ids: Some(Box::new(AttestationIds)),
         sdd_mgr: Some(Box::new(shared_sdd_mgr)),
         bootloader: Box::new(kmr_ta::device::BootloaderDone),
+        #[cfg(feature = "with_hwwsk_support")]
         sk_wrapper: Some(Box::new(TrustyStorageKeyWrapper)),
+        #[cfg(not(feature = "with_hwwsk_support"))]
+        sk_wrapper: None,
         tup: Box::new(kmr_ta::device::TrustedPresenceUnsupported),
         legacy_key: Some(Box::new(legacy_key)),
         rpc: Box::new(TrustyRpc),
