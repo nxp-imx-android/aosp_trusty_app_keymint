@@ -471,6 +471,7 @@ impl RetrieveCertSigningInfo for CertSignInfo {
     }
 }
 
+#[allow(dead_code)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -583,7 +584,8 @@ mod tests {
         delete_key_file(algorithm);
     }
 
-    #[test]
+    // This test should be run manually as it writes to storage.
+    // #[test]
     fn read_ec_rsa_certificates() {
         read_certificates_test(SigningAlgorithm::Rsa);
         read_certificates_test(SigningAlgorithm::Ec);
@@ -616,7 +618,8 @@ mod tests {
         Ok(key)
     }
 
-    #[test]
+    // This test should be run manually as it writes to storage.
+    // #[test]
     fn multiple_attestation_calls_work() {
         let ec_test_key =
             get_test_attestation_key(SigningAlgorithm::Ec).expect("Couldn't get test key");
@@ -683,7 +686,8 @@ mod tests {
         delete_key_file(algorithm);
     }
 
-    #[test]
+    // This test should be run manually as it writes to storage.
+    // #[test]
     fn read_ec_rsa_key() {
         read_key_test(SigningAlgorithm::Rsa);
         read_key_test(SigningAlgorithm::Ec);
@@ -701,17 +705,20 @@ mod tests {
         delete_key_file(algorithm);
     }
 
-    #[test]
+    // This test should be run manually as it writes to storage.
+    // #[test]
     fn read_sec1_private_ec_key() {
         read_non_pkcs8_key_test(SigningAlgorithm::Ec);
     }
 
-    #[test]
+    // This test should be run manually as it writes to storage.
+    // #[test]
     fn read_pkcs1_rsa_key() {
         read_non_pkcs8_key_test(SigningAlgorithm::Rsa);
     }
 
-    #[test]
+    // This test should be run manually as it writes to storage.
+    // #[test]
     fn unprovisioned_keys_certs_reads_produces_error() {
         if check_key_file_exists(SigningAlgorithm::Ec) {
             delete_key_file(SigningAlgorithm::Ec);
@@ -726,7 +733,8 @@ mod tests {
         expect!(read_attestation_key(key_type).is_err(), "Shouldn't be able to read a key");
     }
 
-    #[test]
+    // This test should be run manually as it writes to storage.
+    // #[test]
     fn provision_certs_test() {
         provision_certs_test_impl(SigningAlgorithm::Ec, true);
         provision_certs_test_impl(SigningAlgorithm::Rsa, true);
@@ -782,7 +790,8 @@ mod tests {
         );
     }
 
-    #[test]
+    // This test should be run manually as it writes to storage.
+    // #[test]
     fn clear_certificate_chain_works_when_unprovisioned() {
         clear_certificate_chain_works_when_unprovisioned_impl(SigningAlgorithm::Ec);
         clear_certificate_chain_works_when_unprovisioned_impl(SigningAlgorithm::Rsa);
@@ -813,13 +822,15 @@ mod tests {
         delete_key_file(algorithm);
     }
 
-    #[test]
+    // This test should be run manually as it writes to storage.
+    // #[test]
     fn clear_certificate_chain_works() {
         clear_certificate_chain_works_impl(SigningAlgorithm::Ec);
         clear_certificate_chain_works_impl(SigningAlgorithm::Rsa);
     }
 
-    #[test]
+    // This test should be run manually as it writes to storage.
+    // #[test]
     fn unprovisioned_attestation_ids_do_not_error() {
         if check_attestation_id_file_exists() {
             delete_attestation_id_file();
@@ -838,7 +849,8 @@ mod tests {
         expect_eq!(attestation_ids.imei2.len(), 0, "imei2 should be empty");
     }
 
-    #[test]
+    // This test should be run manually as it writes to storage.
+    // #[test]
     fn single_attestation_id_field() {
         let mut file = create_attestation_id_file().expect("Couldn't create attestation id file");
 
@@ -893,7 +905,8 @@ mod tests {
         );
     }
 
-    #[test]
+    // This test should be run manually as it writes to storage.
+    // #[test]
     fn test_provision_attestation_id_file() {
         let brand = b"unknown brand";
         let product = b"";
@@ -993,7 +1006,8 @@ mod tests {
         expect_eq!(attestation_ids_info.imei2, expected_imei2.to_vec(), "imei2 doesn't match");
     }
 
-    #[test]
+    // This test should be run manually as it writes to storage.
+    // #[test]
     fn all_attestation_id_fields() {
         let mut file = create_attestation_id_file().expect("Couldn't create attestation id file");
         let mut attestation_ids = keymaster_attributes::AttestationIds::new();
@@ -1076,7 +1090,8 @@ mod tests {
         );
     }
 
-    #[test]
+    // This test should be run manually as it writes to storage.
+    // #[test]
     fn delete_attestation_ids_file() {
         let mut file = create_attestation_id_file().expect("Couldn't create attestation id file");
         let raw_protobuf = [10, 9, 110, 101, 119, 32, 98, 114, 97, 110, 100];

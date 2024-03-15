@@ -668,6 +668,7 @@ impl SecureDeletionSecretManager for TrustySecureDeletionSecretManager {
     }
 }
 
+#[allow(dead_code)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -680,7 +681,8 @@ mod tests {
         session.open_file(SECURE_DELETION_SECRET_FILENAME, OpenMode::Open).is_ok()
     }
 
-    #[test]
+    // This test should be run manually as it writes to storage.
+    // #[test]
     fn secret_data_is_cached() {
         let mut sdsf = TrustySecureDeletionSecretManager::new();
         sdsf.delete_all();
@@ -730,7 +732,8 @@ mod tests {
         expect!(!secret_manager_file_exists(), "Couldn't delete secret manager file");
     }
 
-    #[test]
+    // This test should be run manually as it writes to storage.
+    // #[test]
     fn new_secret_data_file_is_clean() {
         let mut sdsf = TrustySecureDeletionSecretManager::new();
         sdsf.delete_all();
@@ -762,8 +765,9 @@ mod tests {
     // Not running next test because it takes too long when run on build server, which causes unit
     // tests to timeout sometimes. Also not using #[ignore] because it doesn't seem to be supported
     // yet.
+    // Also, this test should be run manually as it writes to storage.
 
-    //#[test]
+    // #[test]
     #[allow(dead_code)]
     fn new_secret_data_file_expands() {
         let mut sdsf = TrustySecureDeletionSecretManager::new();
@@ -864,7 +868,8 @@ mod tests {
         expect!(!secret_manager_file_exists(), "Couldn't delete secret manager file");
     }
 
-    #[test]
+    // This test should be run manually as it writes to storage.
+    // #[test]
     fn new_secret_data_dont_affect_neighbors() {
         let mut sdsf = TrustySecureDeletionSecretManager::new();
         sdsf.delete_all();
