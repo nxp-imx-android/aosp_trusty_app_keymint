@@ -755,12 +755,10 @@ mod tests {
         Ok(req)
     }
 
-    #[test]
+    // This test should only be run manually as it writes to the secure storage
+    // of the device under test.
+    // #[test]
     fn set_attestation_keys_certs() {
-        if !cfg!(kmr_enabled) {
-            skip!("KeyMint Rust TA not configured");
-        }
-
         let port = CString::try_new(KM_NS_LEGACY_TIPC_SRV_PORT).unwrap();
         let session = Handle::connect(port.as_c_str()).unwrap();
 
@@ -807,7 +805,9 @@ mod tests {
         session.recv(buf)
     }
 
-    #[test]
+    // This test should only be run manually as it writes to the secure storage
+    // of the device under test.
+    // #[test]
     fn set_attestation_ids() {
         if !cfg!(kmr_enabled) {
             skip!("KeyMint Rust TA not configured");
