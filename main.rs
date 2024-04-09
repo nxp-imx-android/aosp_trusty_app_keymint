@@ -92,7 +92,7 @@ fn main() {
     };
     let dev = kmr_ta::device::Implementation {
         keys: Box::new(TrustyKeys),
-        sign_info: Box::new(CertSignInfo),
+        sign_info: Some(Box::new(CertSignInfo)),
         attest_ids: Some(Box::new(AttestationIds)),
         sdd_mgr: Some(Box::new(shared_sdd_mgr)),
         bootloader: Box::new(kmr_ta::device::BootloaderDone),
