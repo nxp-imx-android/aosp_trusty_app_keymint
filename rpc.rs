@@ -27,7 +27,7 @@ use kmr_wire::{cbor::value::Value, rpc};
 
 // This matches the value of kMasterKeyDerivationData in
 // trusty/user/app/keymaster/trusty_remote_provisioning_context.cpp
-const HBK_KEY_DERIVATION_DATA: &'static [u8] = b"RemoteKeyProvisioningMasterKey";
+const HBK_KEY_DERIVATION_DATA: &[u8] = b"RemoteKeyProvisioningMasterKey";
 
 pub struct TrustyRpc;
 
@@ -67,23 +67,23 @@ impl RetrieveRpcArtifacts for TrustyRpc {
         Ok(dice_info)
     }
 
-    fn sign_data<'a>(
+    fn sign_data(
         &self,
         _ec: &dyn crypto::Ec,
         _data: &[u8],
-        _rpc_v2: Option<RpcV2Req<'a>>,
+        _rpc_v2: Option<RpcV2Req>,
     ) -> Result<Vec<u8>, Error> {
         // This is marked unimplemented because we override `sign_data_in_cose_sign1` below.
         Err(rpc_err!(Failed, "unimplemented"))
     }
 
-    fn sign_data_in_cose_sign1<'a>(
+    fn sign_data_in_cose_sign1(
         &self,
         _ec: &dyn crypto::Ec,
         signing_algorithm: &CsrSigningAlgorithm,
         payload: &[u8],
         aad: &[u8],
-        _rpc_v2: Option<RpcV2Req<'a>>,
+        _rpc_v2: Option<RpcV2Req>,
     ) -> Result<Vec<u8>, Error> {
         match signing_algorithm {
             CsrSigningAlgorithm::EdDSA => {}

@@ -33,11 +33,11 @@ const TRUSTY_KM_WRAPPING_KEY_SIZE: usize = 16;
 /// Key slot identification; matches the value used in
 /// `OpenSSLKeymasterEnforcement::GetKeyAgreementKey` in `openssl_keymaster_enforcement.cpp` for
 /// back-compatibility.
-const KM_KAK_SLOT_ID: &'static [u8] = b"com.android.trusty.keymint.kak\0";
+const KM_KAK_SLOT_ID: &[u8] = b"com.android.trusty.keymint.kak\0";
 
 /// Key derivation input data; matches `kMasterKeyDerivationData` in `trusty_keymaster_context.cpp`
 /// for back-compatibility.
-const KM_KEY_DERIVATION_DATA: &'static [u8] = b"KeymasterMaster\0";
+const KM_KEY_DERIVATION_DATA: &[u8] = b"KeymasterMaster\0";
 
 /// Size of a `u32` value in bytes.
 const U32_SIZE: usize = core::mem::size_of::<u32>();

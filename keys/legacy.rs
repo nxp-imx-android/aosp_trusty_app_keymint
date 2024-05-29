@@ -61,7 +61,7 @@ impl TrustyLegacyKeyBlobHandler {
             // If the slot is zero, the per-key secret is empty.
             let secret: &[u8] = if slot == 0 { &[] } else { &sdd_data.secure_deletion_secret };
             info.try_extend_from_slice(&(secret.len() as u32).to_ne_bytes())?;
-            info.try_extend_from_slice(&secret)?;
+            info.try_extend_from_slice(secret)?;
 
             info.try_extend_from_slice(&slot.to_ne_bytes())?;
         }
@@ -110,7 +110,7 @@ impl TrustyLegacyKeyBlobHandler {
                 let slot = SecureDeletionSlot(slot_idx);
                 let sdd_data = sdd_mgr.get_secret(slot)?;
 
-                Some((sdd_data, slot_idx as u32))
+                Some((sdd_data, slot_idx))
             }
             (true, None, _) => {
                 return Err(km_err!(
@@ -151,14 +151,14 @@ impl TrustyLegacyKeyBlobHandler {
 
         let rollback_version = match encrypted_keyblob.addl_info {
             Some(v) => Some(
-                hwkey::OsRollbackVersion::try_from(v as i32)
+                hwkey::OsRollbackVersion::try_from(v)
                     .map_err(|e| km_err!(InvalidKeyBlob, "unexpected addl_info={} : {:?}", v, e))?,
             ),
             None => None,
         };
         let kek_context = super::TrustyKekContext::new(
             encrypted_keyblob.format.is_versioned(),
-            encrypted_keyblob.kdf_version.map(|v| hwkey::KdfVersion::from(v)),
+            encrypted_keyblob.kdf_version.map(hwkey::KdfVersion::from),
             rollback_version,
         )?
         .to_raw()?;

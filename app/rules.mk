@@ -46,4 +46,6 @@ MODULE_RUSTFLAGS += \
 	--cfg 'feature="with_hwwsk_support"'
 endif
 
+MODULE_RUST_USE_CLIPPY := true
+
 include make/trusted_app.mk
