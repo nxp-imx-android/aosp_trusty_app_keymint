@@ -131,7 +131,7 @@ impl Service for KMService {
         _handle: &Handle,
         peer: &Uuid,
     ) -> tipc::Result<ConnectResult<Self::Connection>> {
-        info!("Accepted connection from uuid {:?}.", peer);
+        debug!("Accepted connection from uuid {:?}.", peer);
         Ok(ConnectResult::Accept(Context { uuid: peer.clone() }))
     }
 
@@ -398,7 +398,7 @@ impl Service for KMLegacyService {
         _handle: &Handle,
         peer: &Uuid,
     ) -> tipc::Result<ConnectResult<Self::Connection>> {
-        info!("Accepted connection from uuid {:?}.", peer);
+        debug!("Accepted connection from uuid {:?}.", peer);
         Ok(ConnectResult::Accept(Context { uuid: peer.clone() }))
     }
 
@@ -500,7 +500,7 @@ impl Service for KMSecureService {
             error!("access policy rejected the uuid: {:?}", peer);
             return Ok(ConnectResult::CloseConnection);
         }
-        info!("Accepted connection from uuid {:?}.", peer);
+        debug!("Accepted connection from uuid {:?}.", peer);
         Ok(ConnectResult::Accept(Context { uuid: peer.clone() }))
     }
 
