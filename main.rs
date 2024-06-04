@@ -30,7 +30,7 @@ use kmr_crypto_boring::{
     hmac::BoringHmac, rsa::BoringRsa, sha256::BoringSha256,
 };
 use kmr_ta::{HardwareInfo, RpcInfo, RpcInfoV3};
-use log::info;
+use log::debug;
 
 fn log_formatter(record: &log::Record) -> String {
     // line number should be present, so keeping it simple by just returning a 0.
@@ -45,7 +45,7 @@ fn main() {
         .format(&log_formatter);
     trusty_log::init_with_config(config);
 
-    info!("Hello from Keymint Rust!");
+    debug!("Hello from Keymint Rust!");
 
     let hw_info = HardwareInfo {
         version_number: 3,
