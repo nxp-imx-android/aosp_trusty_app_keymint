@@ -69,4 +69,6 @@ MODULE_BINDGEN_ALLOW_VARS := \
 
 MODULE_BINDGEN_SRC_HEADER := $(LOCAL_DIR)/bindings.h
 
+MODULE_RUST_USE_CLIPPY := true
+
 include make/library.mk

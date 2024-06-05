@@ -24,7 +24,6 @@ use kmr_common::{
 };
 use log::{debug, error, info, warn};
 use storage::{self as storage_session, OpenMode, Port, SecureFile, Session, Transaction};
-use trusty_sys;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 // Maximum number of attempts to perform a secure storage transaction to read or
@@ -68,7 +67,7 @@ const IN_USE_FLAG: u8 = 0x80;
 
 // Name of the file to store secrets. The "_1" suffix is to allow for new file
 // formats/versions in the future.
-const SECURE_DELETION_SECRET_FILENAME: &'static str = "SecureDeletionSecrets_1";
+const SECURE_DELETION_SECRET_FILENAME: &str = "SecureDeletionSecrets_1";
 
 // TODO: Add crate static_assertions to trusty to replace these with static_assert!
 const _: () = assert!(
@@ -270,7 +269,7 @@ impl<'a> SecureDeletionSecretFile<'a> {
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 struct FactoryResetSecret([u8; FACTORY_RESET_SECRET_SIZE]);
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Default)]
 pub struct TrustySecureDeletionSecretManager {
     factory_reset_secret: RefCell<Option<FactoryResetSecret>>,
 }
@@ -294,7 +293,7 @@ impl TrustySecureDeletionSecretManager {
         // Checking if we already have a cached secret we can return
         if let Some(secret) = self.factory_reset_secret.borrow_mut().deref_mut() {
             return Ok(RetrieveSecureDeletionSecretFileData::CachedDataFound(SecureDeletionData {
-                factory_reset_secret: secret.0.clone(),
+                factory_reset_secret: secret.0,
                 secure_deletion_secret: [0; SECRET_SIZE],
             }));
         }
@@ -315,7 +314,7 @@ impl TrustySecureDeletionSecretManager {
         })?;
 
         // Found an empty file
-        if file_size <= 0 {
+        if file_size == 0 {
             return Ok(RetrieveSecureDeletionSecretFileData::EmptyFileFound(sdsf_file));
         }
 
@@ -331,10 +330,7 @@ impl TrustySecureDeletionSecretManager {
                 block.len()
             ));
         }
-        self.factory_reset_secret
-            .borrow_mut()
-            .deref_mut()
-            .replace(FactoryResetSecret(buffer.clone()));
+        self.factory_reset_secret.borrow_mut().deref_mut().replace(FactoryResetSecret(buffer));
         Ok(RetrieveSecureDeletionSecretFileData::DataFoundOnFile(SecureDeletionData {
             factory_reset_secret: buffer,
             secure_deletion_secret: [0; SECRET_SIZE],
@@ -368,7 +364,7 @@ impl TrustySecureDeletionSecretManager {
                 self.factory_reset_secret
                     .borrow_mut()
                     .deref_mut()
-                    .replace(FactoryResetSecret(buffer.clone()));
+                    .replace(FactoryResetSecret(buffer));
                 Ok(SecureDeletionData {
                     factory_reset_secret: buffer,
                     secure_deletion_secret: [0; SECRET_SIZE],
@@ -525,8 +521,7 @@ impl SecureDeletionSecretManager for TrustySecureDeletionSecretManager {
                     error!("Error zeroing space in extended file: {:?}", e);
                     return Err(e);
                 }
-                let slot_number = original_file_size / SECRET_SIZE;
-                slot_number
+                original_file_size / SECRET_SIZE
             }
         };
 
@@ -636,7 +631,7 @@ impl SecureDeletionSecretManager for TrustySecureDeletionSecretManager {
                     requested_slot
                 ));
             }
-            if let Err(_) = sdsf_file.zero_entries(key_slot_start, key_slot_end) {
+            if sdsf_file.zero_entries(key_slot_start, key_slot_end).is_err() {
                 continue;
             }
             debug!(

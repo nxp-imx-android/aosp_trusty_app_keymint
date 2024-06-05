@@ -30,18 +30,17 @@ use kmr_ta::device::{
 use log::info;
 use protobuf::{self, Message};
 use storage::{OpenMode, Port, SecureFile, Session};
-use trusty_sys;
 
 #[cfg(feature = "soft_attestation_fallback")]
 mod software;
 
 /// Name of file holding attestation device ID information; matches the `kAttestationIdsFileName`
 /// value in `secure_storage_manager.cpp` for back-compatibility.
-const KM_ATTESTATION_ID_FILENAME: &'static str = "AttestationIds";
+const KM_ATTESTATION_ID_FILENAME: &str = "AttestationIds";
 
 /// Filename prefix for files holding attestation keys and certificates; matches the
 /// `kAttestKeyCertPrefix` value in `secure_storage_manager.cpp` for back-compatibility.
-const KM_ATTESTATION_KEY_CERT_PREFIX: &'static str = "AttestKeyCert";
+const KM_ATTESTATION_KEY_CERT_PREFIX: &str = "AttestKeyCert";
 
 /// Maximum size of each attestation certificate
 const MAX_CERT_SIZE: usize = 2048;
@@ -166,7 +165,7 @@ pub(crate) fn append_attestation_cert_chain(
     algorithm: SigningAlgorithm,
     cert_data: &[u8],
 ) -> Result<(), Error> {
-    if cert_data.len() == 0 {
+    if cert_data.is_empty() {
         return Err(km_err!(InvalidInputLength, "received a certificate of length 0"));
     }
 
@@ -200,7 +199,7 @@ pub(crate) fn append_attestation_cert_chain(
 /// Tries to read the file containing the attestation key delete only the certificate section.
 pub(crate) fn clear_attestation_cert_chain(algorithm: SigningAlgorithm) -> Result<(), Error> {
     let mut attestation_key_data = read_attestation_key_content(algorithm)?;
-    if attestation_key_data.get_certs().len() == 0 {
+    if attestation_key_data.get_certs().is_empty() {
         // No certs found, nothing to delete.
         return Ok(());
     }
@@ -221,6 +220,7 @@ pub(crate) fn clear_attestation_cert_chain(algorithm: SigningAlgorithm) -> Resul
 }
 
 /// Creates a new attestation IDs file and saves the provided data there
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn provision_attestation_id_file(
     brand: &[u8],
     product: &[u8],
@@ -236,32 +236,32 @@ pub(crate) fn provision_attestation_id_file(
 
     let mut attestation_ids = keymaster_attributes::AttestationIds::new();
 
-    if brand.len() > 0 {
+    if !brand.is_empty() {
         attestation_ids.set_brand(try_to_vec(brand)?);
     }
-    if device.len() > 0 {
+    if !device.is_empty() {
         attestation_ids.set_device(try_to_vec(device)?);
     }
-    if product.len() > 0 {
+    if !product.is_empty() {
         attestation_ids.set_product(try_to_vec(product)?);
     }
-    if serial.len() > 0 {
+    if !serial.is_empty() {
         attestation_ids.set_serial(try_to_vec(serial)?);
     }
-    if imei.len() > 0 {
+    if !imei.is_empty() {
         attestation_ids.set_imei(try_to_vec(imei)?);
     }
-    if meid.len() > 0 {
+    if !meid.is_empty() {
         attestation_ids.set_meid(try_to_vec(meid)?);
     }
-    if manufacturer.len() > 0 {
+    if !manufacturer.is_empty() {
         attestation_ids.set_manufacturer(try_to_vec(manufacturer)?);
     }
-    if model.len() > 0 {
+    if !model.is_empty() {
         attestation_ids.set_model(try_to_vec(model)?);
     }
     match maybe_imei2 {
-        Some(imei2) if imei2.len() > 0 => {
+        Some(imei2) if !imei2.is_empty() => {
             attestation_ids.set_second_imei(try_to_vec(imei2)?);
         }
         _ => (),
