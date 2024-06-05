@@ -83,7 +83,7 @@ impl<'s> Serialize<'s> for KMMessage {
         &'a self,
         serializer: &mut S,
     ) -> Result<S::Ok, S::Error> {
-        serializer.serialize_bytes(&self.0.as_slice())
+        serializer.serialize_bytes(self.0.as_slice())
     }
 }
 
@@ -185,19 +185,19 @@ fn get_system_state_provisioning_flag() -> Result<ProvisioningAllowedFlagValues,
 
 /// Indicate whether provisioning is allowed.
 fn provisioning_allowed() -> Result<bool, Error> {
-    Ok(match get_system_state_provisioning_flag()? {
-        ProvisioningAllowedFlagValues::ProvisioningAllowed => true,
-        _ => false,
-    })
+    Ok(matches!(
+        get_system_state_provisioning_flag()?,
+        ProvisioningAllowedFlagValues::ProvisioningAllowed
+    ))
 }
 
 /// Indicate whether provisioning is allowed during boot.
 fn provisioning_allowed_at_boot() -> Result<bool, Error> {
-    Ok(match get_system_state_provisioning_flag()? {
-        ProvisioningAllowedFlagValues::ProvisioningAllowed => true,
-        ProvisioningAllowedFlagValues::ProvisioningAllowedAtBoot => true,
-        _ => false,
-    })
+    Ok(matches!(
+        get_system_state_provisioning_flag()?,
+        ProvisioningAllowedFlagValues::ProvisioningAllowed
+            | ProvisioningAllowedFlagValues::ProvisioningAllowedAtBoot
+    ))
 }
 
 /// TIPC service implementation for communication with components outside Trusty (notably the

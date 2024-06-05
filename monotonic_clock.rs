@@ -35,7 +35,7 @@ impl MonotonicClock for TrustyMonotonicClock {
             (secure_time_ns / 1000) / 1000
         };
 
-        return MillisecondsSinceEpoch(secure_time_ns);
+        MillisecondsSinceEpoch(secure_time_ns)
     }
 }
 
