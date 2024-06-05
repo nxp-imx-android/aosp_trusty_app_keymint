@@ -41,7 +41,7 @@ pub fn trusty_rng_add_entropy(data: &[u8]) {
     }
 }
 
-pub(crate) const KEYBOX_PORT: &'static [u8; 28] = sys::KEYBOX_PORT;
+pub(crate) const KEYBOX_PORT: &[u8; 28] = sys::KEYBOX_PORT;
 
 type KeyboxReqHdr = sys::keybox_req;
 type KeyboxUnwrapReqPayloadHdr = sys::keybox_unwrap_req;

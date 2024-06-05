@@ -16,7 +16,6 @@
 //! Trusty implementation of StorageKeyWrapper trait.
 use alloc::vec::Vec;
 use core::ffi::CStr;
-use hwwsk;
 use kmr_common::{
     crypto,
     crypto::{aes, Aes, KeyMaterial, OpaqueKeyMaterial, OpaqueOr},
@@ -30,7 +29,7 @@ use log::warn;
 use tipc::Handle;
 
 /// TIPC port used for communication with the `hwwsk` service.
-const HWWSK_PORT: &'static [u8] = b"com.android.trusty.hwwsk\0";
+const HWWSK_PORT: &[u8] = b"com.android.trusty.hwwsk\0";
 
 /// Create a session for `hwwsk` communication.
 fn hwwsk_session() -> Result<Handle, Error> {
